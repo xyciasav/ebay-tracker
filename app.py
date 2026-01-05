@@ -1,4 +1,3 @@
-# app.py
 import os
 from datetime import datetime
 from pathlib import Path
@@ -60,21 +59,20 @@ def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-    # SQLite in /instance
+    # DB path (Docker compose can override this)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "SQLALCHEMY_DATABASE_URI",
-    "sqlite:///ebay_tracker.db"
-)
+        "SQLALCHEMY_DATABASE_URI",
+        "sqlite:///ebay_tracker.db"
+    )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Uploads folder
-    base_dir = Path(app.root_path)
-    uploads_dir = base_dir / "uploads" / "items"
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    app.config["UPLOAD_FOLDER"] = os.environ.get(
-    "UPLOAD_FOLDER",
-    str(uploads_dir)
-)
+    # Uploads folder (Docker compose can override this)
+    default_uploads_dir = Path(app.root_path) / "uploads" / "items"
+    upload_folder = os.environ.get("UPLOAD_FOLDER", str(default_uploads_dir))
+    app.config["UPLOAD_FOLDER"] = upload_folder
+
+    # Ensure upload folder exists (works for /data/uploads in Docker too)
+    Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
 
@@ -161,7 +159,7 @@ def create_app():
                 )
 
             db.session.add(item)
-            db.session.commit()  # creates SKU
+            db.session.commit()  # assigns SKU
 
             # Handle uploads (multiple)
             files = request.files.getlist("photos")
