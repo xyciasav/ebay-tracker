@@ -1,0 +1,111 @@
+{# templates/item_new.html #}
+{% extends "base.html" %}
+{% block title %}New Item — eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h3 style="margin-top:0;">New Item</h3>
+  <form method="post" enctype="multipart/form-data">
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:220px;">
+        <label>Item Name *</label>
+        <input name="item_name" required>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Platform</label>
+        <input list="platform_list" name="platform" placeholder="eBay">
+        <datalist id="platform_list">
+          {% for p in platforms %}
+            <option value="{{ p }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;">
+        <label>Category</label>
+        <input list="category_list" name="category">
+        <datalist id="category_list">
+          {% for c in categories %}
+            <option value="{{ c }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Sub-Category</label>
+        <input list="sub_category_list" name="sub_category">
+        <datalist id="sub_category_list">
+          {% for sc in sub_categories %}
+            <option value="{{ sc }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;">
+        <label>COG</label>
+        <input name="cog" placeholder="12.50">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Sale Price</label>
+        <input name="sale_price" placeholder="45.00">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Buyer Paid Amount</label>
+        <input name="buyer_paid_amount" placeholder="45.00">
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;">
+        <label>Ad Fee</label>
+        <input name="ad_fee" placeholder="0.00">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>eBay Fee</label>
+        <input name="ebay_fee" placeholder="0.00">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Shipping</label>
+        <input name="shipping" placeholder="0.00">
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;">
+        <label>Date Listed</label>
+        <input type="date" name="date_listed">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Date Sold</label>
+        <input type="date" name="date_sold">
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Sold (Y/N)</label>
+        <select name="sold">
+          <option value="N" selected>N</option>
+          <option value="Y">Y</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Notes</label>
+      <textarea name="notes"></textarea>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Photos (upload to server)</label>
+      <input type="file" name="photos" multiple accept="image/*">
+      <div class="small">Tip: you can upload multiple photos at once.</div>
+    </div>
+
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn" type="submit">Create</button>
+      <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

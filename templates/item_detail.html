@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}SKU {{ item.sku }} — eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">SKU #{{ item.sku }} — {{ item.item_name }}</h2>
+      <div class="small">
+        {% if item.sold %}<span class="pill">Sold: Y</span>{% else %}<span class="pill">Sold: N</span>{% endif %}
+        {% if item.platform %}<span class="pill">Platform: {{ item.platform }}</span>{% endif %}
+        {% if item.category %}<span class="pill">Category: {{ item.category }}</span>{% endif %}
+        {% if item.sub_category %}<span class="pill">Sub: {{ item.sub_category }}</span>{% endif %}
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center;">
+      <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
+      <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}" onsubmit="return confirm('Delete SKU {{ item.sku }}?')">
+        <button class="btn danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:14px;">
+    <div class="card" style="padding:12px;">
+      <div class="small">COG</div><div><strong>{{ "%.2f"|format(item.cog or 0) }}</strong></div>
+    </div>
+    <div class="card" style="padding:12px;">
+      <div class="small">Net Cost</div><div><strong>{{ "%.2f"|format(item.net_cost) }}</strong></div>
+    </div>
+    <div class="card" style="padding:12px;">
+      <div class="small">Buyer Paid</div><div><strong>{{ "%.2f"|format(item.buyer_paid_amount or 0) }}</strong></div>
+    </div>
+    <div class="card" style="padding:12px;">
+      <div class="small">Gross Profit</div><div><strong>{{ "%.2f"|format(item.gross_profit) }}</strong></div>
+    </div>
+  </div>
+
+  {% if item.notes %}
+    <div style="margin-top:12px;">
+      <div class="small">Notes</div>
+      <div>{{ item.notes }}</div>
+    </div>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <h3 style="margin-top:0;">Photos</h3>
+
+  {% if item.images|length == 0 %}
+    <div class="small">No photos yet. Click Edit to upload.</div>
+  {% else %}
+    <div class="grid">
+      {% for img in item.images %}
+        <div>
+          <a href="{{ url_for('uploaded_file', filename=img.filename) }}" target="_blank">
+            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="photo">
+          </a>
+          <form method="post" action="{{ url_for('delete_image', image_id=img.id) }}" onsubmit="return confirm('Delete this image?')">
+            <button class="btn secondary" type="submit" style="width:100%; margin-top:8px;">Delete</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

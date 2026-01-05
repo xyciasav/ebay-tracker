@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{% block title %}eBay Tracker{% endblock %}</title>
+
+  <style>
+    :root{
+      --bg:#f6f7fb;
+      --card:#ffffff;
+      --text:#111111;
+      --muted:#666666;
+      --border:#e6e8ef;
+      --border2:#eef0f6;
+
+      --btn:#111111;
+      --btnText:#ffffff;
+      --btnSecondaryBg:#ffffff;
+      --btnSecondaryText:#111111;
+
+      --link:#2563eb;
+      --linkVisited:#7c3aed;
+
+      --pillBg:#fafafa;
+      --thumbBg:#fafafa;
+      --inputBg:#ffffff;
+    }
+
+    [data-theme="dark"]{
+      --bg:#0b0f19;
+      --card:#0f172a;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --border:#243049;
+      --border2:#1f2a44;
+
+      --btn:#e5e7eb;
+      --btnText:#0b0f19;
+      --btnSecondaryBg:#0f172a;
+      --btnSecondaryText:#e5e7eb;
+
+      --link:#60a5fa;
+      --linkVisited:#c4b5fd;
+
+      --pillBg:#111827;
+      --thumbBg:#111827;
+      --inputBg:#0b1224;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 18px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+    }
+
+    header a {
+      color: var(--text);
+      text-decoration:none;
+    }
+
+    /* ---- LINK STYLING ---- */
+    a {
+      color: var(--link);
+      text-decoration: none;
+    }
+
+    a:visited {
+      color: var(--linkVisited);
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    table a {
+      font-weight: 600;
+    }
+    /* ---------------------- */
+
+    .wrap {
+      max-width:1200px;
+      margin:0 auto;
+      padding:16px;
+    }
+
+    .card {
+      background: var(--card);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:14px;
+    }
+
+    label {
+      font-size:12px;
+      color:var(--muted);
+      display:block;
+      margin-bottom:4px;
+    }
+
+    input, select, textarea {
+      width:100%;
+      padding:10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--inputBg);
+      color:var(--text);
+    }
+
+    textarea { min-height:90px; }
+
+    .btn {
+      background:var(--btn);
+      color:var(--btnText);
+      padding:10px 12px;
+      border-radius:10px;
+      border:1px solid var(--btn);
+      cursor:pointer;
+      text-decoration:none;
+      display:inline-block;
+    }
+
+    .btn.secondary {
+      background:var(--btnSecondaryBg);
+      color:var(--btnSecondaryText);
+      border-color:var(--border);
+    }
+
+    .btn.danger {
+      background:#b91c1c;
+      border-color:#b91c1c;
+      color:#fff;
+    }
+
+    .iconbtn {
+      border:1px solid var(--border);
+      background:var(--btnSecondaryBg);
+      color:var(--btnSecondaryText);
+      padding:10px 12px;
+      border-radius:10px;
+      cursor:pointer;
+    }
+
+    .small {
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .flash {
+      margin:12px 0;
+      padding:10px 12px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card);
+    }
+
+    .flash.success { border-color:#16a34a; }
+    .flash.error { border-color:#ef4444; }
+    .flash.warning { border-color:#f59e0b; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div>
+      <a href="{{ url_for('index') }}"><strong>eBay Tracker</strong></a>
+      <span class="small">— lightweight inventory + profit</span>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button class="iconbtn" id="themeToggle" type="button" title="Toggle dark mode">🌙</button>
+      <a class="btn secondary" href="{{ url_for('index') }}">Inventory</a>
+      <a class="btn" href="{{ url_for('item_new') }}">+ New Item</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=True) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="flash {{ category }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+
+  <script>
+    (function () {
+      const root = document.documentElement;
+      const btn = document.getElementById("themeToggle");
+
+      function setTheme(mode) {
+        if (mode === "dark") {
+          root.setAttribute("data-theme", "dark");
+          btn.textContent = "☀️";
+        } else {
+          root.removeAttribute("data-theme");
+          btn.textContent = "🌙";
+        }
+        localStorage.setItem("theme", mode);
+      }
+
+      const saved = localStorage.getItem("theme");
+      setTheme(saved === "dark" ? "dark" : "light");
+
+      btn.addEventListener("click", () => {
+        const isDark = root.getAttribute("data-theme") === "dark";
+        setTheme(isDark ? "light" : "dark");
+      });
+    })();
+  </script>
+</body>
+</html>

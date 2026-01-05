@@ -1,0 +1,86 @@
+{# templates/item_edit.html #}
+{% extends "base.html" %}
+{% block title %}Edit SKU {{ item.sku }} — eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h3 style="margin-top:0;">Edit SKU #{{ item.sku }}</h3>
+  <form method="post" enctype="multipart/form-data">
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:220px;">
+        <label>Item Name *</label>
+        <input name="item_name" value="{{ item.item_name }}" required>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Platform</label>
+        <input list="platform_list" name="platform" value="{{ item.platform or '' }}">
+        <datalist id="platform_list">
+          {% for p in platforms %}
+            <option value="{{ p }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;">
+        <label>Category</label>
+        <input list="category_list" name="category" value="{{ item.category or '' }}">
+        <datalist id="category_list">
+          {% for c in categories %}
+            <option value="{{ c }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Sub-Category</label>
+        <input list="sub_category_list" name="sub_category" value="{{ item.sub_category or '' }}">
+        <datalist id="sub_category_list">
+          {% for sc in sub_categories %}
+            <option value="{{ sc }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;"><label>COG</label><input name="cog" value="{{ item.cog or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Sale Price</label><input name="sale_price" value="{{ item.sale_price or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Buyer Paid Amount</label><input name="buyer_paid_amount" value="{{ item.buyer_paid_amount or '' }}"></div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;"><label>Ad Fee</label><input name="ad_fee" value="{{ item.ad_fee or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>eBay Fee</label><input name="ebay_fee" value="{{ item.ebay_fee or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Shipping</label><input name="shipping" value="{{ item.shipping or '' }}"></div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;"><label>Date Listed</label><input type="date" name="date_listed" value="{{ item.date_listed or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Date Sold</label><input type="date" name="date_sold" value="{{ item.date_sold or '' }}"></div>
+      <div style="flex:1; min-width:220px;">
+        <label>Sold (Y/N)</label>
+        <select name="sold">
+          <option value="N" {% if not item.sold %}selected{% endif %}>N</option>
+          <option value="Y" {% if item.sold %}selected{% endif %}>Y</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Notes</label>
+      <textarea name="notes">{{ item.notes or '' }}</textarea>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Add Photos</label>
+      <input type="file" name="photos" multiple accept="image/*">
+    </div>
+
+    <div style="margin-top:14px; display:flex; gap:10px;">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku) }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
