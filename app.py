@@ -61,14 +61,20 @@ def create_app():
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
     # SQLite in /instance
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///ebay_tracker.db"
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "SQLALCHEMY_DATABASE_URI",
+    "sqlite:///ebay_tracker.db"
+)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Uploads folder
     base_dir = Path(app.root_path)
     uploads_dir = base_dir / "uploads" / "items"
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    app.config["UPLOAD_FOLDER"] = str(uploads_dir)
+    app.config["UPLOAD_FOLDER"] = os.environ.get(
+    "UPLOAD_FOLDER",
+    str(uploads_dir)
+)
 
     db.init_app(app)
 
