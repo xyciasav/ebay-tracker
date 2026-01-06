@@ -2,113 +2,140 @@
 {% block title %}Reports — eBay Tracker{% endblock %}
 
 {% block content %}
-  <h2 style="margin-top:0;">Reports</h2>
-  <div class="small">Quick snapshot of what’s selling, what’s sitting, and profit performance.</div>
+<div class="card" style="margin-bottom:14px;">
+  <h2 style="margin:0 0 8px 0;">Reports</h2>
+  <div class="small">Filter by sold date for sales/profit metrics. Sitting metrics are always current.</div>
 
-  <div class="grid" style="margin-top:12px;">
-    <div class="card">
-      <label>Total Items</label>
-      <div class="kpi">{{ kpis.total_items }}</div>
+  <form method="get" style="display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-top:12px;">
+    <div style="min-width:220px;">
+      <label>Date Range</label>
+      <select name="range">
+        <option value="all" {% if range_key=='all' %}selected{% endif %}>All time</option>
+        <option value="30d" {% if range_key=='30d' %}selected{% endif %}>Last 30 days</option>
+        <option value="90d" {% if range_key=='90d' %}selected{% endif %}>Last 90 days</option>
+        <option value="this_month" {% if range_key=='this_month' %}selected{% endif %}>This month</option>
+        <option value="last_month" {% if range_key=='last_month' %}selected{% endif %}>Last month</option>
+        <option value="this_year" {% if range_key=='this_year' %}selected{% endif %}>This year</option>
+        <option value="last_year" {% if range_key=='last_year' %}selected{% endif %}>Last year</option>
+        <option value="custom" {% if range_key=='custom' %}selected{% endif %}>Custom</option>
+      </select>
     </div>
 
-    <div class="card">
-      <label>Sold Items</label>
-      <div class="kpi">{{ kpis.sold_items }}</div>
-      <div class="small">Sold rate: {{ "%.1f"|format(kpis.sold_rate_pct) }}%</div>
+    <div style="min-width:180px;">
+      <label>Start (custom)</label>
+      <input type="date" name="start" value="{{ start }}">
     </div>
 
-    <div class="card">
-      <label>Total Profit (sold)</label>
-      <div class="kpi">${{ "%.2f"|format(kpis.total_profit) }}</div>
-      <div class="small">Avg profit per sold: ${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</div>
+    <div style="min-width:180px;">
+      <label>End (custom)</label>
+      <input type="date" name="end" value="{{ end }}">
     </div>
 
-    <div class="card">
-      <label>Avg Days To Sell</label>
-      <div class="kpi">{{ "%.1f"|format(kpis.avg_days_to_sell) }}</div>
-      <div class="small">Based on items with listed + sold dates</div>
+    <div>
+      <button class="btn" type="submit">Apply</button>
+      <a class="btn secondary" href="{{ url_for('reports') }}">Reset</a>
     </div>
+  </form>
+</div>
+
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:14px;">
+  <div class="card">
+    <label>Total Items</label>
+    <div style="font-size:26px; font-weight:700;">{{ kpis.total_items }}</div>
   </div>
 
-  <div class="grid" style="margin-top:12px;">
-    <div class="card">
-      <h3 style="margin-top:0;">Category performance</h3>
-      <div class="small">“Selling a lot” = higher sold count / sold rate. “Sitting” = more unsold + longer listed days.</div>
-
-      <div style="margin-top:10px; overflow:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>Sold</th>
-              <th>Unsold</th>
-              <th>Sold Rate</th>
-              <th>Total Profit (sold)</th>
-              <th>Avg Profit (sold)</th>
-              <th>Avg Days Listed (unsold)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in by_category %}
-              <tr>
-                <td><span class="pill">{{ r.category }}</span></td>
-                <td>{{ r.sold_count }}</td>
-                <td>{{ r.unsold_count }}</td>
-                <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
-                <td>${{ "%.2f"|format(r.total_profit) }}</td>
-                <td>${{ "%.2f"|format(r.avg_profit) }}</td>
-                <td>
-                  {% if r.avg_days_listed_unsold is not none %}
-                    {{ "%.1f"|format(r.avg_days_listed_unsold) }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-              </tr>
-            {% else %}
-              <tr><td colspan="7" class="small">No data yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0;">Top profit items</h3>
-      <div class="small">Profit = buyer paid − (COG + shipping + ad fee + eBay fee)</div>
-
-      <div style="margin-top:10px; overflow:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th>Item</th>
-              <th>Category</th>
-              <th>Profit</th>
-              <th>Days to Sell</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in top_profit %}
-              <tr>
-                <td><a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a></td>
-                <td>{{ r.item_name }}</td>
-                <td>{{ r.category }}</td>
-                <td>${{ "%.2f"|format(r.profit) }}</td>
-                <td>
-                  {% if r.days_to_sell is not none %}
-                    {{ "%.1f"|format(r.days_to_sell) }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5" class="small">No sold items yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+  <div class="card">
+    <label>Sold (in range)</label>
+    <div style="font-size:26px; font-weight:700;">{{ kpis.sold_items }}</div>
+    <div class="small">{{ "%.1f"|format(kpis.sold_rate_pct) }}% of all items</div>
   </div>
+
+  <div class="card">
+    <label>Total Profit (sold in range)</label>
+    <div style="font-size:26px; font-weight:700;">${{ "%.2f"|format(kpis.total_profit) }}</div>
+  </div>
+
+  <div class="card">
+    <label>Avg Profit / Sold</label>
+    <div style="font-size:26px; font-weight:700;">${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</div>
+  </div>
+
+  <div class="card">
+    <label>Avg Days to Sell</label>
+    <div style="font-size:26px; font-weight:700;">{{ "%.1f"|format(kpis.avg_days_to_sell) }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+  <h3 style="margin:0 0 10px 0;">By Category</h3>
+  <div style="overflow:auto;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Category</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Sold (range)</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Unsold</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Sell-Through</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Total Profit (range)</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Avg Profit (range)</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Avg Days Listed (unsold)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in by_category %}
+        <tr>
+          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.category }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">{{ r.sold_count }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">{{ r.unsold_count }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">${{ "%.2f"|format(r.total_profit) }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">${{ "%.2f"|format(r.avg_profit) }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">
+            {% if r.avg_days_listed_unsold is not none %}
+              {{ "%.1f"|format(r.avg_days_listed_unsold) }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin:0 0 10px 0;">Top Profit Items (sold in range)</h3>
+  <div style="overflow:auto;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">SKU</th>
+          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Item</th>
+          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Category</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Profit</th>
+          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Days to Sell</th>
+          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Date Sold</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in top_profit %}
+        <tr>
+          <td style="padding:10px; border-bottom:1px solid var(--border2);">
+            <a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a>
+          </td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.item_name }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.category }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">${{ "%.2f"|format(r.profit) }}</td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">
+            {% if r.days_to_sell is not none %}{{ "%.1f"|format(r.days_to_sell) }}{% else %}—{% endif %}
+          </td>
+          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.date_sold or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endblock %}
