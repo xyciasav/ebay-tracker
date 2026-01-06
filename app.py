@@ -1,12 +1,10 @@
 import os
 from datetime import datetime
 from pathlib import Path
-
+from sqlalchemy import func, case
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
-
 from PIL import Image, ImageOps
-
 from models import db, Item, ItemImage
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -145,6 +143,132 @@ def create_app():
             category_filter=category,
             q=q,
         )
+
+    @app.route("/reports")
+    def reports():
+        def nz(col):
+            return func.coalesce(col, 0.0)
+
+        profit_expr = (
+            nz(Item.buyer_paid_amount)
+            - (nz(Item.cog) + nz(Item.shipping) + nz(Item.ad_fee) + nz(Item.ebay_fee))
+        )
+
+        days_to_sell_expr = case(
+            (
+                (Item.date_listed.isnot(None)) & (Item.date_sold.isnot(None)),
+                func.julianday(Item.date_sold) - func.julianday(Item.date_listed),
+            ),
+            else_=None,
+        )
+
+        total_items = Item.query.count()
+        sold_items = Item.query.filter(Item.sold.is_(True)).count()
+        sold_rate_pct = (sold_items / total_items * 100.0) if total_items else 0.0
+
+        total_profit = (
+            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
+            .filter(Item.sold.is_(True))
+            .scalar()
+        ) or 0.0
+
+        avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
+
+        avg_days_to_sell = (
+            db.session.query(func.avg(days_to_sell_expr))
+            .filter(Item.sold.is_(True))
+            .scalar()
+        )
+        avg_days_to_sell = float(avg_days_to_sell) if avg_days_to_sell is not None else 0.0
+
+        category_col = func.coalesce(Item.category, "Uncategorized")
+
+        sold_count_expr = func.sum(case((Item.sold.is_(True), 1), else_=0))
+        unsold_count_expr = func.sum(case((Item.sold.is_(False), 1), else_=0))
+        total_count_expr = func.count(Item.sku)
+        sold_rate_expr = (sold_count_expr * 100.0) / func.nullif(total_count_expr, 0)
+
+        total_profit_cat = func.coalesce(
+            func.sum(case((Item.sold.is_(True), profit_expr), else_=0.0)),
+            0.0,
+        )
+        avg_profit_cat = func.avg(case((Item.sold.is_(True), profit_expr), else_=None))
+
+        avg_days_listed_unsold = func.avg(
+            case(
+                (
+                    (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
+                    func.julianday(func.current_date()) - func.julianday(Item.date_listed),
+                ),
+                else_=None,
+            )
+        )
+
+        rows = (
+            db.session.query(
+                category_col.label("category"),
+                sold_count_expr.label("sold_count"),
+                unsold_count_expr.label("unsold_count"),
+                func.coalesce(sold_rate_expr, 0.0).label("sold_rate_pct"),
+                total_profit_cat.label("total_profit"),
+                avg_profit_cat.label("avg_profit"),
+                avg_days_listed_unsold.label("avg_days_listed_unsold"),
+            )
+            .group_by(category_col)
+            .order_by(sold_count_expr.desc(), total_profit_cat.desc())
+            .all()
+        )
+
+        by_category = []
+        for r in rows:
+            by_category.append(
+                {
+                    "category": r.category,
+                    "sold_count": int(r.sold_count or 0),
+                    "unsold_count": int(r.unsold_count or 0),
+                    "sold_rate_pct": float(r.sold_rate_pct or 0.0),
+                    "total_profit": float(r.total_profit or 0.0),
+                    "avg_profit": float(r.avg_profit) if r.avg_profit is not None else 0.0,
+                    "avg_days_listed_unsold": float(r.avg_days_listed_unsold) if r.avg_days_listed_unsold is not None else None,
+                }
+            )
+
+        top_rows = (
+            db.session.query(
+                Item.sku,
+                Item.item_name,
+                category_col.label("category"),
+                profit_expr.label("profit"),
+                days_to_sell_expr.label("days_to_sell"),
+            )
+            .filter(Item.sold.is_(True))
+            .order_by(profit_expr.desc())
+            .limit(15)
+            .all()
+        )
+
+        top_profit = []
+        for r in top_rows:
+            top_profit.append(
+                {
+                    "sku": r.sku,
+                    "item_name": r.item_name,
+                    "category": r.category,
+                    "profit": float(r.profit or 0.0),
+                    "days_to_sell": float(r.days_to_sell) if r.days_to_sell is not None else None,
+                }
+            )
+
+        kpis = {
+            "total_items": total_items,
+            "sold_items": sold_items,
+            "sold_rate_pct": sold_rate_pct,
+            "total_profit": float(total_profit),
+            "avg_profit_per_sold": float(avg_profit_per_sold),
+            "avg_days_to_sell": float(avg_days_to_sell),
+        }
+
+        return render_template("reports.html", kpis=kpis, by_category=by_category, top_profit=top_profit)
 
     @app.route("/item/new", methods=["GET", "POST"])
     def item_new():
