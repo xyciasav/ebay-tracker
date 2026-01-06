@@ -73,10 +73,42 @@
     </div>
 
     <div style="margin-top:10px;">
-      <label>Add Photos</label>
-      <input type="file" name="photos" multiple accept="image/*" capture="environment">
-      <div class="small">On mobile you can choose Camera or Photo Library</div>
-    </div>
+  <label>Add Photos</label>
+
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+    <button type="button" class="btn secondary" onclick="document.getElementById('cameraInput').click()">
+      Take Photo
+    </button>
+
+    <button type="button" class="btn secondary" onclick="document.getElementById('galleryInput').click()">
+      Choose From Library
+    </button>
+  </div>
+
+  <!-- Camera-only input -->
+  <input
+    id="cameraInput"
+    type="file"
+    name="photos"
+    accept="image/*"
+    capture="environment"
+    style="display:none;"
+  >
+
+  <!-- Gallery/files input -->
+  <input
+    id="galleryInput"
+    type="file"
+    name="photos"
+    accept="image/*"
+    multiple
+    style="display:none;"
+  >
+
+  <div class="small" style="margin-top:8px;">
+    Use “Take Photo” for the camera, or “Choose From Library” to pick existing pics.
+  </div>
+</div>
 
     <div style="margin-top:14px; display:flex; gap:10px;">
       <button class="btn" type="submit">Save</button>
