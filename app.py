@@ -146,36 +146,28 @@ def create_app():
 
     @app.route("/reports")
     def reports():
-        # -----------------------------
-        # Date range filter
-        # -----------------------------
         range_key = (request.args.get("range") or "all").strip().lower()
         start_s = (request.args.get("start") or "").strip()
         end_s = (request.args.get("end") or "").strip()
 
         today = datetime.utcnow().date()
 
-        def clamp_start_end(start_date, end_date):
-            if start_date and end_date and start_date > end_date:
-                start_date, end_date = end_date, start_date
-            return start_date, end_date
-
+        # Resolve range -> start/end dates (inclusive)
         start_date = None
-        end_date = None  # inclusive (we'll use <=)
+        end_date = None
 
         if range_key == "30d":
-            start_date = today.replace()  # just to be explicit
-            start_date = today - timedelta(days=30)  # type: ignore[attr-defined]
+            start_date = today - timedelta(days=30)
             end_date = today
         elif range_key == "90d":
-            start_date = today - timedelta(days=90)  # type: ignore[attr-defined]
+            start_date = today - timedelta(days=90)
             end_date = today
         elif range_key == "this_month":
             start_date = today.replace(day=1)
             end_date = today
         elif range_key == "last_month":
             first_this_month = today.replace(day=1)
-            last_month_end = first_this_month - timedelta(days=1)  # type: ignore[attr-defined]
+            last_month_end = first_this_month - timedelta(days=1)
             start_date = last_month_end.replace(day=1)
             end_date = last_month_end
         elif range_key == "this_year":
@@ -187,30 +179,21 @@ def create_app():
         elif range_key == "custom":
             start_date = parse_date(start_s)
             end_date = parse_date(end_s)
-            start_date, end_date = clamp_start_end(start_date, end_date)
+            if start_date and end_date and start_date > end_date:
+                start_date, end_date = end_date, start_date
         else:
             range_key = "all"
 
-        # We'll filter using date_sold (for sold metrics) and date_listed (for sitting metrics)
-        sold_date_filter = []
+        # Build sold-date filters (used for sold/profit metrics)
+        sold_date_filters = []
         if start_date:
-            sold_date_filter.append(Item.date_sold.isnot(None))
-            sold_date_filter.append(Item.date_sold >= start_date)
+            sold_date_filters.append(Item.date_sold.isnot(None))
+            sold_date_filters.append(Item.date_sold >= start_date)
         if end_date:
-            sold_date_filter.append(Item.date_sold.isnot(None))
-            sold_date_filter.append(Item.date_sold <= end_date)
+            sold_date_filters.append(Item.date_sold.isnot(None))
+            sold_date_filters.append(Item.date_sold <= end_date)
 
-        listed_date_filter = []
-        if start_date:
-            listed_date_filter.append(Item.date_listed.isnot(None))
-            listed_date_filter.append(Item.date_listed >= start_date)
-        if end_date:
-            listed_date_filter.append(Item.date_listed.isnot(None))
-            listed_date_filter.append(Item.date_listed <= end_date)
-
-        # -----------------------------
-        # Helper SQL expressions
-        # -----------------------------
+        # Helpers
         def nz(col):
             return func.coalesce(col, 0.0)
 
@@ -230,51 +213,44 @@ def create_app():
         category_col = func.coalesce(Item.category, "Uncategorized")
 
         # -----------------------------
-        # KPI queries (respect date range for sold metrics)
+        # KPIs
         # -----------------------------
         total_items = Item.query.count()
 
         sold_items_q = Item.query.filter(Item.sold.is_(True))
-        if sold_date_filter:
-            sold_items_q = sold_items_q.filter(*sold_date_filter)
+        if sold_date_filters:
+            sold_items_q = sold_items_q.filter(*sold_date_filters)
         sold_items = sold_items_q.count()
 
         sold_rate_pct = (sold_items / total_items * 100.0) if total_items else 0.0
 
-        total_profit_q = db.session.query(func.coalesce(func.sum(profit_expr), 0.0)).filter(Item.sold.is_(True))
-        if sold_date_filter:
-            total_profit_q = total_profit_q.filter(*sold_date_filter)
-        total_profit = float(total_profit_q.scalar() or 0.0)
+        total_profit_q = (
+            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
+            .filter(Item.sold.is_(True))
+        )
+        if sold_date_filters:
+            total_profit_q = total_profit_q.filter(*sold_date_filters)
 
+        total_profit = float(total_profit_q.scalar() or 0.0)
         avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
 
-        avg_days_to_sell_q = db.session.query(func.avg(days_to_sell_expr)).filter(Item.sold.is_(True))
-        if sold_date_filter:
-            avg_days_to_sell_q = avg_days_to_sell_q.filter(*sold_date_filter)
+        avg_days_to_sell_q = (
+            db.session.query(func.avg(days_to_sell_expr))
+            .filter(Item.sold.is_(True))
+        )
+        if sold_date_filters:
+            avg_days_to_sell_q = avg_days_to_sell_q.filter(*sold_date_filters)
+
         avg_days_to_sell = avg_days_to_sell_q.scalar()
         avg_days_to_sell = float(avg_days_to_sell) if avg_days_to_sell is not None else 0.0
 
         # -----------------------------
-        # Category metrics
+        # Category counts (all items, current inventory)
         # -----------------------------
-        sold_count_expr = func.sum(case((Item.sold.is_(True), 1), else_=0))
-        unsold_count_expr = func.sum(case((Item.sold.is_(False), 1), else_=0))
-        total_count_expr = func.count(Item.sku)
-        sold_rate_expr = (sold_count_expr * 100.0) / func.nullif(total_count_expr, 0)
+        sold_count_all = func.sum(case((Item.sold.is_(True), 1), else_=0))
+        unsold_count = func.sum(case((Item.sold.is_(False), 1), else_=0))
+        total_count = func.count(Item.sku)
 
-        # Sold-only profit by category (within date range)
-        sold_profit_case = case(
-            (Item.sold.is_(True), profit_expr),
-            else_=0.0,
-        )
-
-        # When date range is used, apply it to sold-only profit / sold counts
-        # We'll do this by wrapping sold_count and sold_profit with an additional condition.
-        if sold_date_filter:
-            sold_cond = (Item.sold.is_(True)) & (*sold_date_filter,)  # not valid, can't splat like that
-        # Instead we'll apply filters at the query level below.
-
-        # “Sitting” metric: avg days listed for unsold items (date_listed range optional)
         avg_days_listed_unsold = func.avg(
             case(
                 (
@@ -285,31 +261,12 @@ def create_app():
             )
         )
 
-        cat_query = db.session.query(
-            category_col.label("category"),
-            sold_count_expr.label("sold_count"),
-            unsold_count_expr.label("unsold_count"),
-            func.coalesce(sold_rate_expr, 0.0).label("sold_rate_pct"),
-            func.coalesce(func.sum(sold_profit_case), 0.0).label("total_profit"),
-            func.avg(case((Item.sold.is_(True), profit_expr), else_=None)).label("avg_profit"),
-            avg_days_listed_unsold.label("avg_days_listed_unsold"),
-        ).group_by(category_col)
-
-        # Apply sold date filter to sold-related aggregations by filtering the whole query
-        # BUT we do NOT want to lose unsold counts when filtering by sold date.
-        # So we do category metrics in two passes:
-        #   - base counts (all items)
-        #   - sold metrics (date filtered)
-        #
-        # We'll compute counts from all items, then sold metrics from filtered sold set, and merge in Python.
-
-        # Pass A: counts + sitting (no sold-date filtering)
         rows_counts = (
             db.session.query(
                 category_col.label("category"),
-                func.sum(case((Item.sold.is_(True), 1), else_=0)).label("sold_count_alltime"),
-                func.sum(case((Item.sold.is_(False), 1), else_=0)).label("unsold_count"),
-                func.count(Item.sku).label("total_count"),
+                sold_count_all.label("sold_count_all"),
+                unsold_count.label("unsold_count"),
+                total_count.label("total_count"),
                 avg_days_listed_unsold.label("avg_days_listed_unsold"),
             )
             .group_by(category_col)
@@ -320,22 +277,25 @@ def create_app():
         for r in rows_counts:
             counts_map[r.category] = {
                 "category": r.category,
-                "sold_count_alltime": int(r.sold_count_alltime or 0),
                 "unsold_count": int(r.unsold_count or 0),
                 "total_count": int(r.total_count or 0),
                 "avg_days_listed_unsold": float(r.avg_days_listed_unsold) if r.avg_days_listed_unsold is not None else None,
             }
 
-        # Pass B: sold metrics within date range (or all sold if range=all)
-        sold_metrics_q = db.session.query(
-            category_col.label("category"),
-            func.count(Item.sku).label("sold_count"),
-            func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
-            func.avg(profit_expr).label("avg_profit"),
-        ).filter(Item.sold.is_(True))
-
-        if sold_date_filter:
-            sold_metrics_q = sold_metrics_q.filter(*sold_date_filter)
+        # -----------------------------
+        # Sold metrics by category (sold in range)
+        # -----------------------------
+        sold_metrics_q = (
+            db.session.query(
+                category_col.label("category"),
+                func.count(Item.sku).label("sold_count"),
+                func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
+                func.avg(profit_expr).label("avg_profit"),
+            )
+            .filter(Item.sold.is_(True))
+        )
+        if sold_date_filters:
+            sold_metrics_q = sold_metrics_q.filter(*sold_date_filters)
 
         sold_rows = sold_metrics_q.group_by(category_col).all()
 
@@ -347,24 +307,23 @@ def create_app():
                 "avg_profit": float(r.avg_profit) if r.avg_profit is not None else 0.0,
             }
 
-        # Merge counts + sold metrics
+        # Merge
         by_category = []
         all_cats = sorted(set(list(counts_map.keys()) + list(sold_map.keys())))
         for cat in all_cats:
             c = counts_map.get(cat, {"unsold_count": 0, "total_count": 0, "avg_days_listed_unsold": None})
             s = sold_map.get(cat, {"sold_count": 0, "total_profit": 0.0, "avg_profit": 0.0})
 
-            total_count = int(c.get("total_count") or 0)
-            sold_count = int(s.get("sold_count") or 0)
-            unsold_count = int(c.get("unsold_count") or 0)
-
-            sold_rate_pct_cat = (sold_count * 100.0 / total_count) if total_count else 0.0
+            total_count_val = int(c.get("total_count") or 0)
+            sold_count_val = int(s.get("sold_count") or 0)
+            unsold_count_val = int(c.get("unsold_count") or 0)
+            sold_rate_pct_cat = (sold_count_val * 100.0 / total_count_val) if total_count_val else 0.0
 
             by_category.append(
                 {
                     "category": cat,
-                    "sold_count": sold_count,
-                    "unsold_count": unsold_count,
+                    "sold_count": sold_count_val,
+                    "unsold_count": unsold_count_val,
                     "sold_rate_pct": float(sold_rate_pct_cat),
                     "total_profit": float(s.get("total_profit") or 0.0),
                     "avg_profit": float(s.get("avg_profit") or 0.0),
@@ -372,11 +331,10 @@ def create_app():
                 }
             )
 
-        # Sort: most sold in range, then profit
         by_category.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
         # -----------------------------
-        # Top profit items (sold, in range)
+        # Top profit items (sold in range)
         # -----------------------------
         top_q = (
             db.session.query(
@@ -389,8 +347,8 @@ def create_app():
             )
             .filter(Item.sold.is_(True))
         )
-        if sold_date_filter:
-            top_q = top_q.filter(*sold_date_filter)
+        if sold_date_filters:
+            top_q = top_q.filter(*sold_date_filters)
 
         top_rows = top_q.order_by(profit_expr.desc()).limit(15).all()
 
@@ -425,6 +383,7 @@ def create_app():
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
         )
+
 
     @app.route("/item/new", methods=["GET", "POST"])
     def item_new():
