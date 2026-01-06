@@ -73,6 +73,18 @@
       padding:14px;
     }
 
+    .grid {
+      display:grid;
+      gap:12px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .kpi {
+      font-size: 26px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
     label { font-size:12px; color:var(--muted); }
 
     input, select, textarea {
@@ -121,14 +133,39 @@
     .flash.error { border-color: #dc262655; }
     .flash.warning { border-color: #f59e0b55; }
 
-    /* ✅ Photo display fix */
+    table{
+      width:100%;
+      border-collapse: collapse;
+      overflow:hidden;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+    th, td{
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border2);
+      text-align:left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+    th{ font-size: 12px; color: var(--muted); font-weight: 600; }
+
+    .pill{
+      display:inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--pillBg);
+      font-size: 12px;
+    }
+
+    /* Photo thumbnails (if you're using them) */
     .photo-grid{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       margin-top:8px;
     }
-
     .thumb{
       width: 180px;
       height: 180px;
@@ -138,12 +175,8 @@
       background: var(--thumbBg);
       display:block;
     }
-
     @media (max-width: 520px){
-      .thumb{
-        width: 120px;
-        height: 120px;
-      }
+      .thumb{ width: 120px; height: 120px; }
     }
   </style>
 </head>
@@ -155,11 +188,11 @@
       <span class="small">— lightweight inventory + profit</span>
     </div>
 
-    <div style="display:flex; gap:10px; align-items:center;">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
       <a class="btn secondary" href="{{ url_for('index') }}">Inventory</a>
+      <a class="btn secondary" href="{{ url_for('reports') }}">Reports</a>
       <a class="btn" href="{{ url_for('item_new') }}">+ New Item</a>
 
-      <!-- Optional: theme toggle (works even if you don't use it yet) -->
       <button class="iconbtn" type="button" id="themeBtn" title="Toggle dark mode">🌓</button>
     </div>
   </header>
@@ -177,7 +210,6 @@
   </div>
 
   <script>
-    // Theme toggle (safe even if you don't care)
     (function(){
       const root = document.documentElement;
       const saved = localStorage.getItem("theme");

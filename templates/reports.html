@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Reports — eBay Tracker{% endblock %}
+
+{% block content %}
+  <h2 style="margin-top:0;">Reports</h2>
+  <div class="small">Quick snapshot of what’s selling, what’s sitting, and profit performance.</div>
+
+  <div class="grid" style="margin-top:12px;">
+    <div class="card">
+      <label>Total Items</label>
+      <div class="kpi">{{ kpis.total_items }}</div>
+    </div>
+
+    <div class="card">
+      <label>Sold Items</label>
+      <div class="kpi">{{ kpis.sold_items }}</div>
+      <div class="small">Sold rate: {{ "%.1f"|format(kpis.sold_rate_pct) }}%</div>
+    </div>
+
+    <div class="card">
+      <label>Total Profit (sold)</label>
+      <div class="kpi">${{ "%.2f"|format(kpis.total_profit) }}</div>
+      <div class="small">Avg profit per sold: ${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</div>
+    </div>
+
+    <div class="card">
+      <label>Avg Days To Sell</label>
+      <div class="kpi">{{ "%.1f"|format(kpis.avg_days_to_sell) }}</div>
+      <div class="small">Based on items with listed + sold dates</div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:12px;">
+    <div class="card">
+      <h3 style="margin-top:0;">Category performance</h3>
+      <div class="small">“Selling a lot” = higher sold count / sold rate. “Sitting” = more unsold + longer listed days.</div>
+
+      <div style="margin-top:10px; overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Sold</th>
+              <th>Unsold</th>
+              <th>Sold Rate</th>
+              <th>Total Profit (sold)</th>
+              <th>Avg Profit (sold)</th>
+              <th>Avg Days Listed (unsold)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in by_category %}
+              <tr>
+                <td><span class="pill">{{ r.category }}</span></td>
+                <td>{{ r.sold_count }}</td>
+                <td>{{ r.unsold_count }}</td>
+                <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
+                <td>${{ "%.2f"|format(r.total_profit) }}</td>
+                <td>${{ "%.2f"|format(r.avg_profit) }}</td>
+                <td>
+                  {% if r.avg_days_listed_unsold is not none %}
+                    {{ "%.1f"|format(r.avg_days_listed_unsold) }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="small">No data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Top profit items</h3>
+      <div class="small">Profit = buyer paid − (COG + shipping + ad fee + eBay fee)</div>
+
+      <div style="margin-top:10px; overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Item</th>
+              <th>Category</th>
+              <th>Profit</th>
+              <th>Days to Sell</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in top_profit %}
+              <tr>
+                <td><a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a></td>
+                <td>{{ r.item_name }}</td>
+                <td>{{ r.category }}</td>
+                <td>${{ "%.2f"|format(r.profit) }}</td>
+                <td>
+                  {% if r.days_to_sell is not none %}
+                    {{ "%.1f"|format(r.days_to_sell) }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="small">No sold items yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
