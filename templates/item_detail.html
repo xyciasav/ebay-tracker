@@ -2,67 +2,101 @@
 {% block title %}SKU {{ item.sku }} — eBay Tracker{% endblock %}
 
 {% block content %}
-<div class="card">
-  <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-      <h2 style="margin:0;">SKU #{{ item.sku }} — {{ item.item_name }}</h2>
-      <div class="small">
-        {% if item.sold %}<span class="pill">Sold: Y</span>{% else %}<span class="pill">Sold: N</span>{% endif %}
-        {% if item.platform %}<span class="pill">Platform: {{ item.platform }}</span>{% endif %}
-        {% if item.category %}<span class="pill">Category: {{ item.category }}</span>{% endif %}
-        {% if item.sub_category %}<span class="pill">Sub: {{ item.sub_category }}</span>{% endif %}
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h2 style="margin:0;">SKU {{ item.sku }} — {{ item.item_name }}</h2>
+        <div class="small" style="margin-top:6px;">
+          {% if item.sold %}
+            <strong>Sold</strong>
+          {% else %}
+            <strong>Not Sold</strong>
+          {% endif %}
+          {% if item.platform %} • {{ item.platform }}{% endif %}
+          {% if item.category %} • {{ item.category }}{% endif %}
+          {% if item.sub_category %} • {{ item.sub_category }}{% endif %}
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
+
+        <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}"
+              onsubmit="return confirm('Delete SKU {{ item.sku }}? This removes the item and its photos.');">
+          <button class="btn" type="submit">Delete</button>
+        </form>
       </div>
     </div>
 
-    <div style="display:flex; gap:10px; align-items:center;">
-      <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
-      <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}" onsubmit="return confirm('Delete SKU {{ item.sku }}?')">
-        <button class="btn danger" type="submit">Delete</button>
-      </form>
-    </div>
-  </div>
+    <hr style="border:none; border-top:1px solid var(--border); margin:14px 0;">
 
-  <div class="row" style="margin-top:14px;">
-    <div class="card" style="padding:12px;">
-      <div class="small">COG</div><div><strong>{{ "%.2f"|format(item.cog or 0) }}</strong></div>
-    </div>
-    <div class="card" style="padding:12px;">
-      <div class="small">Net Cost</div><div><strong>{{ "%.2f"|format(item.net_cost) }}</strong></div>
-    </div>
-    <div class="card" style="padding:12px;">
-      <div class="small">Buyer Paid</div><div><strong>{{ "%.2f"|format(item.buyer_paid_amount or 0) }}</strong></div>
-    </div>
-    <div class="card" style="padding:12px;">
-      <div class="small">Gross Profit</div><div><strong>{{ "%.2f"|format(item.gross_profit) }}</strong></div>
-    </div>
-  </div>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+      <div>
+        <label>COG</label>
+        <div>{{ item.cog if item.cog is not none else "" }}</div>
+      </div>
 
-  {% if item.notes %}
-    <div style="margin-top:12px;">
-      <div class="small">Notes</div>
-      <div>{{ item.notes }}</div>
+      <div>
+        <label>Sale Price</label>
+        <div>{{ item.sale_price if item.sale_price is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>Buyer Paid Amount</label>
+        <div>{{ item.buyer_paid_amount if item.buyer_paid_amount is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>Ad Fee</label>
+        <div>{{ item.ad_fee if item.ad_fee is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>eBay Fee</label>
+        <div>{{ item.ebay_fee if item.ebay_fee is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>Shipping</label>
+        <div>{{ item.shipping if item.shipping is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>Date Listed</label>
+        <div>{{ item.date_listed if item.date_listed is not none else "" }}</div>
+      </div>
+
+      <div>
+        <label>Date Sold</label>
+        <div>{{ item.date_sold if item.date_sold is not none else "" }}</div>
+      </div>
     </div>
-  {% endif %}
-</div>
 
-<div class="card" style="margin-top:14px;">
-  <h3 style="margin-top:0;">Photos</h3>
+    {% if item.notes %}
+      <div style="margin-top:12px;">
+        <label>Notes</label>
+        <div style="white-space:pre-wrap;">{{ item.notes }}</div>
+      </div>
+    {% endif %}
 
-  {% if item.images|length == 0 %}
-    <div class="small">No photos yet. Click Edit to upload.</div>
-  {% else %}
-    <div class="grid">
+    <h3 style="margin-top:18px; margin-bottom:6px;">Photos</h3>
+
+    <div class="photo-grid">
       {% for img in item.images %}
         <div>
-          <a href="{{ url_for('uploaded_file', filename=img.filename) }}" target="_blank">
-            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="photo">
+          <a href="{{ url_for('uploaded_file', filename=img.filename) }}" target="_blank" rel="noopener">
+            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="Item photo">
           </a>
-          <form method="post" action="{{ url_for('delete_image', image_id=img.id) }}" onsubmit="return confirm('Delete this image?')">
-            <button class="btn secondary" type="submit" style="width:100%; margin-top:8px;">Delete</button>
+
+          <form method="post" action="{{ url_for('delete_image', image_id=img.id) }}"
+                style="margin-top:6px;"
+                onsubmit="return confirm('Delete this photo?');">
+            <button class="btn secondary" type="submit" style="padding:6px 10px;">Delete</button>
           </form>
         </div>
+      {% else %}
+        <div class="small">No photos yet.</div>
       {% endfor %}
     </div>
-  {% endif %}
-</div>
+  </div>
 {% endblock %}

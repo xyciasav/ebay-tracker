@@ -5,6 +5,8 @@ from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
 
+from PIL import Image, ImageOps
+
 from models import db, Item, ItemImage
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -40,10 +42,6 @@ def parse_date(value: str):
 
 
 def get_distinct_values(model, column):
-    """
-    Returns distinct non-empty values for a column from the DB,
-    used to populate datalist dropdown suggestions.
-    """
     rows = db.session.query(column).distinct().filter(column.isnot(None)).order_by(column).all()
     values = []
     for r in rows:
@@ -55,23 +53,45 @@ def get_distinct_values(model, column):
     return values
 
 
+def process_image(path: str, max_size: int = 1600):
+    """
+    Shrinks huge phone photos and fixes sideways rotation using EXIF.
+    Overwrites the file at 'path' with an optimized version.
+    """
+    try:
+        img = Image.open(path)
+        img = ImageOps.exif_transpose(img)  # auto-rotate correctly
+
+        # Resize (keeps aspect ratio). Longest side becomes <= max_size.
+        img.thumbnail((max_size, max_size))
+
+        # Convert to a safe mode for saving
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        img.save(path, optimize=True, quality=85)
+
+    except Exception as e:
+        print(f"Image processing failed for {path}: {e}")
+
+
 def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-    # DB path (Docker compose can override this)
+    # DB URI can be overridden in Docker
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "SQLALCHEMY_DATABASE_URI",
         "sqlite:///ebay_tracker.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Uploads folder (Docker compose can override this)
+    # Upload folder can be overridden in Docker
     default_uploads_dir = Path(app.root_path) / "uploads" / "items"
     upload_folder = os.environ.get("UPLOAD_FOLDER", str(default_uploads_dir))
     app.config["UPLOAD_FOLDER"] = upload_folder
 
-    # Ensure upload folder exists (works for /data/uploads in Docker too)
+    # Ensure upload folder exists
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
@@ -161,7 +181,7 @@ def create_app():
             db.session.add(item)
             db.session.commit()  # assigns SKU
 
-            # Handle uploads (multiple)
+            # Handle uploads
             files = request.files.getlist("photos")
             for f in files:
                 if not f or f.filename == "":
@@ -174,7 +194,13 @@ def create_app():
                 ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
                 ext = safe.rsplit(".", 1)[1].lower()
                 stored_name = f"SKU{item.sku}_{ts}.{ext}"
-                f.save(os.path.join(app.config["UPLOAD_FOLDER"], stored_name))
+
+                save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
+                f.save(save_path)
+
+                # ✅ shrink + rotate
+                process_image(save_path)
+
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
 
             db.session.commit()
@@ -182,7 +208,6 @@ def create_app():
             flash(f"Created item SKU #{item.sku}.", "success")
             return redirect(url_for("item_detail", sku=item.sku))
 
-        # GET
         categories = get_distinct_values(Item, Item.category)
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
@@ -246,14 +271,19 @@ def create_app():
                 ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
                 ext = safe.rsplit(".", 1)[1].lower()
                 stored_name = f"SKU{item.sku}_{ts}.{ext}"
-                f.save(os.path.join(app.config["UPLOAD_FOLDER"], stored_name))
+
+                save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
+                f.save(save_path)
+
+                # ✅ shrink + rotate
+                process_image(save_path)
+
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
 
             db.session.commit()
             flash(f"Updated SKU #{item.sku}.", "success")
             return redirect(url_for("item_detail", sku=item.sku))
 
-        # GET
         categories = get_distinct_values(Item, Item.category)
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
