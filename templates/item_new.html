@@ -266,6 +266,7 @@
 </script>
 
 <div id="barcodeScannerWrap" style="display:none; margin-top:10px;">
+$("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "start" });
   <div style="
     width: 340px;
     max-width: 100%;
@@ -279,12 +280,15 @@
       <button type="button" class="btn secondary" id="btnCloseBarcode" style="padding:6px 10px;">Close</button>
     </div>
 
-    <video
-      id="barcodeVideo"
-      playsinline
-      muted
-      style="display:block; width:100%; height:220px; object-fit:cover;"
-    ></video>
+<video
+  id="barcodeVideo"
+  autoplay
+  playsinline
+  webkit-playsinline
+  muted
+  style="display:block; width:100%; height:220px; object-fit:cover; background:#111;"
+></video>
+
   </div>
 
   <div class="small" style="margin-top:6px;">
