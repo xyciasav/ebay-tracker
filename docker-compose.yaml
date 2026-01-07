@@ -7,6 +7,9 @@ services:
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-change-me}
       - SQLALCHEMY_DATABASE_URI=${SQLALCHEMY_DATABASE_URI:-sqlite:///ebay_tracker.db}
       - UPLOAD_FOLDER=/data/uploads/items
+      - AUTH_MODE=basic
+      - BASIC_AUTH_USER=mike
+      - BASIC_AUTH_PASS=source!
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads
