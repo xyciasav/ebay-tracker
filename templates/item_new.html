@@ -56,6 +56,7 @@
 
           <video
             id="barcodeVideo"
+            autoplay
             playsinline
             webkit-playsinline
             muted
@@ -295,18 +296,11 @@
 </div>
 
 <script>
-  // ---------------- helpers ----------------
   function el(id){ return document.getElementById(id); }
-  function toNum(v) {
-    if (v === null || v === undefined) return 0;
-    const s = String(v).trim().replace("$", "").replace(",", "");
-    const n = parseFloat(s);
-    return Number.isFinite(n) ? n : 0;
-  }
-  function money(n) {
-    if (!Number.isFinite(n)) return "—";
-    return "$" + n.toFixed(2);
-  }
+
+  let barcodeStream = null;
+  let playRetryTimer = null;
+
   function setStatus(msg, isErr=false) {
     const s = el("barcodeStatus");
     if (!s) return;
@@ -314,189 +308,143 @@
     s.style.color = isErr ? "var(--danger, #b00020)" : "var(--muted, #6b7280)";
   }
 
-  // ---------------- shipping preset ----------------
-  el("shipPreset")?.addEventListener("change", () => {
-    const v = el("shipPreset").value;
-    if (v === "custom") return;
-    el("shipYouPay").value = v;
-  });
-
-  // ---------------- comps links + calc ----------------
-  function ebaySoldUrl(q) {
-    const s = encodeURIComponent(q.trim());
-    return `https://www.ebay.com/sch/i.html?_nkw=${s}&LH_Sold=1&LH_Complete=1`;
-  }
-  function ebayActiveUrl(q) {
-    const s = encodeURIComponent(q.trim());
-    return `https://www.ebay.com/sch/i.html?_nkw=${s}`;
+  function debug(msg) {
+    const d = el("scannerDebug");
+    if (!d) return;
+    d.textContent = msg;
   }
 
-  const LS_KEY = "ebayTrackerCompsDefaults";
-  function loadDefaults() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return;
-      const d = JSON.parse(raw);
-      if (d && typeof d === "object") {
-        if (d.ebayFeePct != null) el("ebayFeePct").value = d.ebayFeePct;
-        if (d.adFeePct != null) el("adFeePct").value = d.adFeePct;
-        if (d.desiredProfit != null) el("desiredProfit").value = d.desiredProfit;
-        if (d.shipYouPay != null) el("shipYouPay").value = d.shipYouPay;
-      }
-    } catch (e) {}
-  }
-  function saveDefaults() {
-    const d = {
-      ebayFeePct: toNum(el("ebayFeePct").value),
-      adFeePct: toNum(el("adFeePct").value),
-      desiredProfit: toNum(el("desiredProfit").value),
-      shipYouPay: toNum(el("shipYouPay").value),
-    };
-    try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {}
-  }
+  function stopInlineScanner() {
+    if (playRetryTimer) {
+      clearInterval(playRetryTimer);
+      playRetryTimer = null;
+    }
 
-  function syncQueryDefault() {
-    const qEl = el("compsQuery");
-    if (!qEl) return;
-    const existing = qEl.value.trim();
-    if (existing) return;
-    const b = (el("barcode")?.value || "").trim();
-    if (b) qEl.value = b;
-  }
-
-  // ---------------- inline camera preview (stable) ----------------
-  let barcodeStream = null;
-
-  function stopScanner() {
     const video = el("barcodeVideo");
     if (video) {
-      try { video.pause(); } catch (e) {}
-      video.srcObject = null;
-      // iOS/Safari sometimes benefits from forcing a reload
-      try { video.load(); } catch (e) {}
+      try { video.pause(); } catch(e) {}
+      try { video.srcObject = null; } catch(e) {}
+      try { video.load(); } catch(e) {}
     }
 
     if (barcodeStream) {
-      try { barcodeStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      try { barcodeStream.getTracks().forEach(t => t.stop()); } catch(e) {}
       barcodeStream = null;
     }
-
-    el("barcodeScannerWrap").style.display = "none";
-    el("btnCloseBarcode").style.display = "none";
   }
 
-  async function startScanner() {
-    // Always stop any old stream first (prevents AbortError)
-    stopScanner();
-
+  async function startInlineScanner() {
+    // show UI FIRST so you're not starting camera on hidden elements
     el("barcodeScannerWrap").style.display = "block";
     el("btnCloseBarcode").style.display = "inline-block";
-    el("scannerDebug").textContent = "";
+    el("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    debug("");
 
     if (!window.isSecureContext) {
       setStatus("Camera requires HTTPS (secure context).", true);
-      el("scannerDebug").textContent = `isSecureContext=${window.isSecureContext}`;
+      debug(`isSecureContext=${window.isSecureContext}`);
       return;
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("Browser has no camera API (getUserMedia missing).", true);
-      el("scannerDebug").textContent = `navigator.mediaDevices=${!!navigator.mediaDevices}`;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("Camera API not available in this browser.", true);
+      debug(`navigator.mediaDevices=${!!navigator.mediaDevices}`);
       return;
     }
+
+    // Stop any previous stream (prevents weird “green icon but no preview” states)
+    stopInlineScanner();
 
     try {
       setStatus("Requesting camera permission…");
 
-      barcodeStream = await navigator.mediaDevices.getUserMedia({
+      // Ask for back camera + reasonable resolution
+      const constraints = {
         audio: false,
-        video: { facingMode: { ideal: "environment" } }
-      });
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      barcodeStream = await navigator.mediaDevices.getUserMedia(constraints);
 
       const video = el("barcodeVideo");
+
+      // Force attributes Brave/Chrome want
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
+      video.setAttribute("muted", "");
+      video.muted = true;
+      video.autoplay = true; // important on mobile
+
       video.srcObject = barcodeStream;
 
-      // IMPORTANT: wait for metadata, then play (prevents AbortError on iOS/Safari)
+      // Wait for metadata then play
       await new Promise((resolve) => {
         video.onloadedmetadata = () => resolve();
       });
 
-      // Try play after metadata is ready
-      await video.play();
+      // Try play immediately
+      try {
+        await video.play();
+      } catch (e) {
+        // We'll retry below
+      }
 
-      // Confirm the preview is actually rendering
-      setTimeout(() => {
+      // Retry play for ~2 seconds (Brave sometimes needs it)
+      let tries = 0;
+      playRetryTimer = setInterval(async () => {
+        tries++;
+        try {
+          await video.play();
+        } catch (e) {}
+
         const w = video.videoWidth || 0;
         const h = video.videoHeight || 0;
-        el("scannerDebug").textContent = `videoWidth=${w}, videoHeight=${h}, readyState=${video.readyState}`;
-        if (!w || !h) {
-          setStatus("Camera is on but preview not rendering (Safari/iOS inline issue). Try Close → Scan again.", true);
-        } else {
+        if (w && h) {
+          clearInterval(playRetryTimer);
+          playRetryTimer = null;
           setStatus("Camera started. Point at barcode…");
+          debug(`OK: videoWidth=${w}, videoHeight=${h}, readyState=${video.readyState}`);
+        } else if (tries >= 10) {
+          clearInterval(playRetryTimer);
+          playRetryTimer = null;
+          setStatus("Camera is on, but preview isn't rendering. (Often Brave Shields / autoplay restriction)", true);
+          debug(`FAIL: videoWidth=${w}, videoHeight=${h}, readyState=${video.readyState}`);
         }
-      }, 250);
+      }, 200);
 
     } catch (err) {
-      const msg = (err && err.name) ? `${err.name}: ${err.message || ""}` : String(err);
       console.error("Camera error:", err);
+      const msg = (err && err.name) ? `${err.name}: ${err.message || ""}` : String(err);
       setStatus("Camera failed: " + msg, true);
-      el("scannerDebug").textContent = msg;
-      stopScanner();
+      debug(msg);
+      stopInlineScanner();
     }
   }
 
-  // ---------------- DOM ready wiring ----------------
   document.addEventListener("DOMContentLoaded", () => {
-    loadDefaults();
-    syncQueryDefault();
+    const btn = el("btnScanBarcode");
+    const closeBtn = el("btnCloseBarcode");
 
-    el("barcode")?.addEventListener("input", () => {
-      const q = el("compsQuery")?.value?.trim() || "";
-      if (!q) syncQueryDefault();
-    });
+    if (btn) {
+      btn.addEventListener("click", async () => {
+        await startInlineScanner();
+      });
+    }
 
-    el("btnScanBarcode")?.addEventListener("click", async () => {
-      await startScanner();
-      // Scroll just enough so you see the preview
-      el("barcodeScannerWrap")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
-
-    el("btnCloseBarcode")?.addEventListener("click", () => {
-      stopScanner();
-      setStatus("Scanner closed.");
-    });
-
-    el("btnOpenSold")?.addEventListener("click", () => {
-      syncQueryDefault();
-      const q = el("compsQuery").value.trim();
-      if (!q) return alert("Enter a barcode or keywords first.");
-      window.open(ebaySoldUrl(q), "_blank", "noopener,noreferrer");
-    });
-
-    el("btnOpenActive")?.addEventListener("click", () => {
-      syncQueryDefault();
-      const q = el("compsQuery").value.trim();
-      if (!q) return alert("Enter a barcode or keywords first.");
-      window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
-    });
-
-    el("btnCalcMaxBuy")?.addEventListener("click", () => {
-      const avgSold = toNum(el("avgSoldPrice").value);
-      const shipPay = toNum(el("shipYouPay").value);
-      const ebayPct = toNum(el("ebayFeePct").value) / 100.0;
-      const adPct = toNum(el("adFeePct").value) / 100.0;
-      const desired = toNum(el("desiredProfit").value);
-
-      saveDefaults();
-
-      if (avgSold <= 0) return alert("Enter an Avg sold price first.");
-
-      const feeTotal = avgSold * (ebayPct + adPct);
-      const maxBuy = avgSold - shipPay - feeTotal - desired;
-      const estProfit = avgSold - (maxBuy + shipPay + feeTotal);
-
-      el("maxBuyOut").textContent = money(maxBuy);
-      el("profitOut").textContent = money(estProfit);
-    });
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        stopInlineScanner();
+        el("barcodeScannerWrap").style.display = "none";
+        closeBtn.style.display = "none";
+        setStatus("Scanner closed.");
+      });
+    }
   });
 </script>
+
 {% endblock %}
