@@ -66,6 +66,58 @@
   </div>
 </div>
 
+    <h2 style="margin-top: 30px;">By Source Location</h2>
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>Sold (range)</th>
+          <th>Unsold</th>
+          <th>Sell-through %</th>
+          <th>Total Profit (range)</th>
+          <th>Avg Profit (range)</th>
+          <th>Avg Days To Sell (range)</th>
+          <th>Avg Days Listed (unsold)</th>
+          <th>Avg COG (unsold)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in by_source %}
+        <tr>
+          <td>{{ r.source }}</td>
+          <td>{{ r.sold_count }}</td>
+          <td>{{ r.unsold_count }}</td>
+          <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
+          <td>${{ "%.2f"|format(r.total_profit) }}</td>
+          <td>${{ "%.2f"|format(r.avg_profit) }}</td>
+          <td>
+            {% if r.avg_days_to_sell is not none %}
+              {{ "%.1f"|format(r.avg_days_to_sell) }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if r.avg_days_listed_unsold is not none %}
+              {{ "%.1f"|format(r.avg_days_listed_unsold) }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if r.avg_cog_unsold is not none %}
+              ${{ "%.2f"|format(r.avg_cog_unsold) }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+
 <div class="card" style="margin-bottom:14px;">
   <h3 style="margin:0 0 10px 0;">By Category</h3>
   <div style="overflow:auto;">

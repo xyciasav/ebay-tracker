@@ -55,7 +55,6 @@ def get_distinct_values(model, column):
             .all()
         )
     except Exception:
-        # Common case: sqlite schema not migrated yet (no such column)
         return []
 
     values = []
@@ -76,16 +75,12 @@ def process_image(path: str, max_size: int = 1600):
     try:
         img = Image.open(path)
         img = ImageOps.exif_transpose(img)  # auto-rotate correctly
+        img.thumbnail((max_size, max_size))  # longest side <= max_size
 
-        # Resize (keeps aspect ratio). Longest side becomes <= max_size.
-        img.thumbnail((max_size, max_size))
-
-        # Convert to a safe mode for saving
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
         img.save(path, optimize=True, quality=85)
-
     except Exception as e:
         print(f"Image processing failed for {path}: {e}")
 
@@ -100,12 +95,11 @@ def ensure_sqlite_column(table_name: str, column_name: str, column_type_sql: str
         if db.engine.dialect.name != "sqlite":
             return
 
-        # Does the table exist?
         table_info = db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
         if not table_info:
             return
 
-        existing_cols = {row[1] for row in table_info}  # row[1] is column name
+        existing_cols = {row[1] for row in table_info}
         if column_name in existing_cols:
             return
 
@@ -113,7 +107,6 @@ def ensure_sqlite_column(table_name: str, column_name: str, column_type_sql: str
         db.session.commit()
         print(f"[migrate] Added column {table_name}.{column_name} ({column_type_sql})")
     except Exception as e:
-        # Don't kill the app if migration fails; log it so you can see it in docker logs
         print(f"[migrate] Failed to ensure column {table_name}.{column_name}: {e}")
 
 
@@ -121,28 +114,21 @@ def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-    # DB URI can be overridden in Docker
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "SQLALCHEMY_DATABASE_URI",
         "sqlite:///ebay_tracker.db",
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Upload folder can be overridden in Docker
     default_uploads_dir = Path(app.root_path) / "uploads" / "items"
     upload_folder = os.environ.get("UPLOAD_FOLDER", str(default_uploads_dir))
     app.config["UPLOAD_FOLDER"] = upload_folder
-
-    # Ensure upload folder exists
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
 
     with app.app_context():
         db.create_all()
-
-        # ✅ Ensure the new column exists in SQLite without nuking your DB.
-        # (This prevents: sqlite3.OperationalError: no such column: items.source_location)
         ensure_sqlite_column("items", "source_location", "TEXT")
 
     @app.route("/uploads/items/<path:filename>")
@@ -203,7 +189,6 @@ def create_app():
 
         today = datetime.utcnow().date()
 
-        # Resolve range -> start/end dates (inclusive)
         start_date = None
         end_date = None
 
@@ -235,7 +220,7 @@ def create_app():
         else:
             range_key = "all"
 
-        # Build sold-date filters (used for sold/profit metrics)
+        # Sold-date filters (inclusive)
         sold_date_filters = []
         if start_date:
             sold_date_filters.append(Item.date_sold.isnot(None))
@@ -244,7 +229,6 @@ def create_app():
             sold_date_filters.append(Item.date_sold.isnot(None))
             sold_date_filters.append(Item.date_sold <= end_date)
 
-        # Helpers
         def nz(col):
             return func.coalesce(col, 0.0)
 
@@ -262,6 +246,7 @@ def create_app():
         )
 
         category_col = func.coalesce(Item.category, "Uncategorized")
+        source_col = func.coalesce(Item.source_location, "Unknown")
 
         # -----------------------------
         # KPIs
@@ -281,8 +266,8 @@ def create_app():
         )
         if sold_date_filters:
             total_profit_q = total_profit_q.filter(*sold_date_filters)
-
         total_profit = float(total_profit_q.scalar() or 0.0)
+
         avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
 
         avg_days_to_sell_q = (
@@ -296,7 +281,7 @@ def create_app():
         avg_days_to_sell = float(avg_days_to_sell) if avg_days_to_sell is not None else 0.0
 
         # -----------------------------
-        # Category counts (all items, current inventory)
+        # By Category (existing)
         # -----------------------------
         sold_count_all = func.sum(case((Item.sold.is_(True), 1), else_=0))
         unsold_count = func.sum(case((Item.sold.is_(False), 1), else_=0))
@@ -333,9 +318,6 @@ def create_app():
                 "avg_days_listed_unsold": float(r.avg_days_listed_unsold) if r.avg_days_listed_unsold is not None else None,
             }
 
-        # -----------------------------
-        # Sold metrics by category (sold in range)
-        # -----------------------------
         sold_metrics_q = (
             db.session.query(
                 category_col.label("category"),
@@ -358,7 +340,6 @@ def create_app():
                 "avg_profit": float(r.avg_profit) if r.avg_profit is not None else 0.0,
             }
 
-        # Merge
         by_category = []
         all_cats = sorted(set(list(counts_map.keys()) + list(sold_map.keys())))
         for cat in all_cats:
@@ -381,8 +362,100 @@ def create_app():
                     "avg_days_listed_unsold": c.get("avg_days_listed_unsold"),
                 }
             )
-
         by_category.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
+
+        # -----------------------------
+        # ✅ NEW: By Source Location
+        # -----------------------------
+        # Inventory / sitting stats by source (all items)
+        rows_source_counts = (
+            db.session.query(
+                source_col.label("source"),
+                func.sum(case((Item.sold.is_(True), 1), else_=0)).label("sold_count_all"),
+                func.sum(case((Item.sold.is_(False), 1), else_=0)).label("unsold_count"),
+                func.count(Item.sku).label("total_count"),
+                func.avg(
+                    case(
+                        (
+                            (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
+                            func.julianday(func.current_date()) - func.julianday(Item.date_listed),
+                        ),
+                        else_=None,
+                    )
+                ).label("avg_days_listed_unsold"),
+                func.avg(
+                    case(
+                        ((Item.sold.is_(False)) & (Item.cog.isnot(None)), Item.cog),
+                        else_=None,
+                    )
+                ).label("avg_cog_unsold"),
+            )
+            .group_by(source_col)
+            .all()
+        )
+
+        source_counts_map = {}
+        for r in rows_source_counts:
+            source_counts_map[r.source] = {
+                "source": r.source,
+                "unsold_count": int(r.unsold_count or 0),
+                "total_count": int(r.total_count or 0),
+                "avg_days_listed_unsold": float(r.avg_days_listed_unsold) if r.avg_days_listed_unsold is not None else None,
+                "avg_cog_unsold": float(r.avg_cog_unsold) if r.avg_cog_unsold is not None else None,
+            }
+
+        # Sold/profit stats by source (sold in range)
+        sold_source_q = (
+            db.session.query(
+                source_col.label("source"),
+                func.count(Item.sku).label("sold_count"),
+                func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
+                func.avg(profit_expr).label("avg_profit"),
+                func.avg(days_to_sell_expr).label("avg_days_to_sell"),
+            )
+            .filter(Item.sold.is_(True))
+        )
+        if sold_date_filters:
+            sold_source_q = sold_source_q.filter(*sold_date_filters)
+
+        sold_source_rows = sold_source_q.group_by(source_col).all()
+
+        sold_source_map = {}
+        for r in sold_source_rows:
+            sold_source_map[r.source] = {
+                "sold_count": int(r.sold_count or 0),
+                "total_profit": float(r.total_profit or 0.0),
+                "avg_profit": float(r.avg_profit) if r.avg_profit is not None else 0.0,
+                "avg_days_to_sell": float(r.avg_days_to_sell) if r.avg_days_to_sell is not None else None,
+            }
+
+        # Merge into by_source list
+        by_source = []
+        all_sources = sorted(set(list(source_counts_map.keys()) + list(sold_source_map.keys())))
+        for src in all_sources:
+            c = source_counts_map.get(src, {"unsold_count": 0, "total_count": 0, "avg_days_listed_unsold": None, "avg_cog_unsold": None})
+            s = sold_source_map.get(src, {"sold_count": 0, "total_profit": 0.0, "avg_profit": 0.0, "avg_days_to_sell": None})
+
+            total_count_val = int(c.get("total_count") or 0)
+            sold_count_val = int(s.get("sold_count") or 0)
+            sold_rate_pct_src = (sold_count_val * 100.0 / total_count_val) if total_count_val else 0.0
+
+            by_source.append(
+                {
+                    "source": src,
+                    "sold_count": sold_count_val,
+                    "unsold_count": int(c.get("unsold_count") or 0),
+                    "sold_rate_pct": float(sold_rate_pct_src),
+                    "total_profit": float(s.get("total_profit") or 0.0),
+                    "avg_profit": float(s.get("avg_profit") or 0.0),
+                    "avg_days_to_sell": s.get("avg_days_to_sell"),
+                    "avg_days_listed_unsold": c.get("avg_days_listed_unsold"),
+                    "avg_cog_unsold": c.get("avg_cog_unsold"),
+                }
+            )
+
+        # Order: best profit sources first (then sold count)
+        by_source.sort(key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True)
 
         # -----------------------------
         # Top profit items (sold in range)
@@ -392,6 +465,7 @@ def create_app():
                 Item.sku,
                 Item.item_name,
                 category_col.label("category"),
+                source_col.label("source"),
                 profit_expr.label("profit"),
                 days_to_sell_expr.label("days_to_sell"),
                 Item.date_sold.label("date_sold"),
@@ -410,6 +484,7 @@ def create_app():
                     "sku": r.sku,
                     "item_name": r.item_name,
                     "category": r.category,
+                    "source": r.source,
                     "profit": float(r.profit or 0.0),
                     "days_to_sell": float(r.days_to_sell) if r.days_to_sell is not None else None,
                     "date_sold": r.date_sold.isoformat() if r.date_sold else None,
@@ -429,6 +504,7 @@ def create_app():
             "reports.html",
             kpis=kpis,
             by_category=by_category,
+            by_source=by_source,          # ✅ NEW
             top_profit=top_profit,
             range_key=range_key,
             start=start_date.isoformat() if start_date else "",
@@ -462,7 +538,6 @@ def create_app():
                 sub_categories = get_distinct_values(Item, Item.sub_category)
                 platforms = get_distinct_values(Item, Item.platform)
                 source_locations = get_distinct_values(Item, Item.source_location)
-
                 return render_template(
                     "item_new.html",
                     categories=categories,
@@ -472,9 +547,8 @@ def create_app():
                 )
 
             db.session.add(item)
-            db.session.commit()  # assigns SKU
+            db.session.commit()
 
-            # Handle uploads
             files = request.files.getlist("photos")
             for f in files:
                 if not f or f.filename == "":
@@ -490,14 +564,11 @@ def create_app():
 
                 save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
                 f.save(save_path)
-
-                # ✅ shrink + rotate
                 process_image(save_path)
 
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
 
             db.session.commit()
-
             flash(f"Created item SKU #{item.sku}.", "success")
             return redirect(url_for("item_detail", sku=item.sku))
 
@@ -511,7 +582,7 @@ def create_app():
             categories=categories,
             sub_categories=sub_categories,
             platforms=platforms,
-            source_locations=source_locations,  # ✅ IMPORTANT (fills datalist)
+            source_locations=source_locations,
         )
 
     @app.route("/item/<int:sku>")
@@ -548,7 +619,6 @@ def create_app():
                 sub_categories = get_distinct_values(Item, Item.sub_category)
                 platforms = get_distinct_values(Item, Item.platform)
                 source_locations = get_distinct_values(Item, Item.source_location)
-
                 return render_template(
                     "item_edit.html",
                     item=item,
@@ -558,7 +628,6 @@ def create_app():
                     source_locations=source_locations,
                 )
 
-            # Add new photos if uploaded
             files = request.files.getlist("photos")
             for f in files:
                 if not f or f.filename == "":
@@ -574,8 +643,6 @@ def create_app():
 
                 save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
                 f.save(save_path)
-
-                # ✅ shrink + rotate
                 process_image(save_path)
 
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
@@ -595,7 +662,7 @@ def create_app():
             categories=categories,
             sub_categories=sub_categories,
             platforms=platforms,
-            source_locations=source_locations,  # ✅ IMPORTANT (fills datalist)
+            source_locations=source_locations,
         )
 
     @app.route("/image/<int:image_id>/delete", methods=["POST"])
