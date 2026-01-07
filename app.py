@@ -1,12 +1,11 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-
+from urllib.parse import quote
 from sqlalchemy import func, case, text
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
-
 from models import db, Item, ItemImage
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -458,8 +457,36 @@ def create_app():
         by_source.sort(key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True)
 
         # -----------------------------
-        # Top profit items (sold in range)
+        # Top profit items (sold in range) + thumbnail
         # -----------------------------
+        # Top N selector (you wanted 5–10)
+        try:
+            top_n = int(request.args.get("top", 10))
+        except ValueError:
+            top_n = 10
+        top_n = max(5, min(10, top_n))  # clamp to 5..10
+
+        # Inline SVG placeholder so you don't need a file on disk
+        placeholder_thumb = "data:image/svg+xml;utf8," + quote(
+            """<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'>
+                 <rect width='100%' height='100%' fill='#0b1220'/>
+                 <rect x='10' y='18' width='76' height='56' rx='8' ry='8' fill='#101b33' stroke='#2a3a66'/>
+                 <path d='M22 62l16-16 12 12 10-10 14 14' fill='none' stroke='#2a3a66' stroke-width='4'/>
+                 <circle cx='38' cy='38' r='6' fill='#2a3a66'/>
+               </svg>"""
+        )
+
+        # Grab "first image filename" per SKU using a correlated subquery
+        order_col = ItemImage.id if hasattr(ItemImage, "id") else ItemImage.filename
+        thumb_filename_sq = (
+            db.session.query(ItemImage.filename)
+            .filter(ItemImage.item_sku == Item.sku)
+            .order_by(order_col.asc())
+            .limit(1)
+            .correlate(Item)
+            .scalar_subquery()
+        )
+
         top_q = (
             db.session.query(
                 Item.sku,
@@ -469,16 +496,23 @@ def create_app():
                 profit_expr.label("profit"),
                 days_to_sell_expr.label("days_to_sell"),
                 Item.date_sold.label("date_sold"),
+                thumb_filename_sq.label("thumb_filename"),
             )
             .filter(Item.sold.is_(True))
         )
         if sold_date_filters:
             top_q = top_q.filter(*sold_date_filters)
 
-        top_rows = top_q.order_by(profit_expr.desc()).limit(15).all()
+        top_rows = top_q.order_by(profit_expr.desc()).limit(top_n).all()
 
         top_profit = []
         for r in top_rows:
+            thumb_url = (
+                url_for("uploaded_file", filename=r.thumb_filename)
+                if getattr(r, "thumb_filename", None)
+                else placeholder_thumb
+            )
+
             top_profit.append(
                 {
                     "sku": r.sku,
@@ -488,6 +522,7 @@ def create_app():
                     "profit": float(r.profit or 0.0),
                     "days_to_sell": float(r.days_to_sell) if r.days_to_sell is not None else None,
                     "date_sold": r.date_sold.isoformat() if r.date_sold else None,
+                    "thumb_url": thumb_url,
                 }
             )
 
@@ -504,11 +539,12 @@ def create_app():
             "reports.html",
             kpis=kpis,
             by_category=by_category,
-            by_source=by_source,          # ✅ NEW
+            by_source=by_source,
             top_profit=top_profit,
             range_key=range_key,
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
+            top_n=top_n,  # ✅ add this
         )
 
     @app.route("/item/new", methods=["GET", "POST"])

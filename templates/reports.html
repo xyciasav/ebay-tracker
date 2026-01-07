@@ -2,6 +2,18 @@
 {% block title %}Reports — eBay Tracker{% endblock %}
 
 {% block content %}
+<style>
+  .thumb{
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    display:block;
+  }
+</style>
+
 <div class="card" style="margin-bottom:14px;">
   <h2 style="margin:0 0 8px 0;">Reports</h2>
   <div class="small">Filter by sold date for sales/profit metrics. Sitting metrics are always current.</div>
@@ -29,6 +41,15 @@
     <div style="min-width:180px;">
       <label>End (custom)</label>
       <input type="date" name="end" value="{{ end }}">
+    </div>
+
+    <!-- ✅ Put Top items INSIDE the form so it submits -->
+    <div style="min-width:160px;">
+      <label>Top items</label>
+      <select name="top">
+        <option value="5"  {% if top_n == 5 %}selected{% endif %}>Top 5</option>
+        <option value="10" {% if top_n == 10 %}selected{% endif %}>Top 10</option>
+      </select>
     </div>
 
     <div>
@@ -159,38 +180,41 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" style="margin-top:14px;">
   <h3 style="margin:0 0 10px 0;">Top Profit Items (sold in range)</h3>
-  <div style="overflow:auto;">
-    <table style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">SKU</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Item</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Category</th>
-          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Profit</th>
-          <th style="text-align:right; padding:10px; border-bottom:1px solid var(--border);">Days to Sell</th>
-          <th style="text-align:left; padding:10px; border-bottom:1px solid var(--border);">Date Sold</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in top_profit %}
-        <tr>
-          <td style="padding:10px; border-bottom:1px solid var(--border2);">
-            <a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a>
-          </td>
-          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.item_name }}</td>
-          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.category }}</td>
-          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">${{ "%.2f"|format(r.profit) }}</td>
-          <td style="padding:10px; border-bottom:1px solid var(--border2); text-align:right;">
-            {% if r.days_to_sell is not none %}{{ "%.1f"|format(r.days_to_sell) }}{% else %}—{% endif %}
-          </td>
-          <td style="padding:10px; border-bottom:1px solid var(--border2);">{{ r.date_sold or "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th style="width:64px;">Photo</th>
+        <th>SKU</th>
+        <th>Item</th>
+        <th>Category</th>
+        <th style="text-align:right;">Profit</th>
+        <th style="text-align:right;">Days to Sell</th>
+        <th>Date Sold</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in top_profit %}
+      <tr>
+        <td>
+          <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
+        </td>
+        <td>
+          <a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a>
+        </td>
+        <td>{{ r.item_name }}</td>
+        <td>{{ r.category }}</td>
+        <td style="text-align:right;">${{ '%.2f'|format(r.profit) }}</td>
+        <td style="text-align:right;">
+          {% if r.days_to_sell is none %}—{% else %}{{ '%.1f'|format(r.days_to_sell) }}{% endif %}
+        </td>
+        <td>{{ r.date_sold or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 {% endblock %}
