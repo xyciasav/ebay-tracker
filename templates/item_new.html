@@ -74,10 +74,19 @@
     </div>
 
     <div style="margin-top:10px;">
-  <label>Source Location</label>
-  <input type="text" name="source_location" placeholder="Goodwill, Ross, Estate sale, Target clearance..." />
-</div>
-
+      <label>Source Location</label>
+      <input
+        type="text"
+        name="source_location"
+        list="source_locations_list"
+        placeholder="Goodwill, Ross, Estate sale, Target clearance..."
+      />
+      <datalist id="source_locations_list">
+        {% for s in source_locations %}
+          <option value="{{ s }}"></option>
+        {% endfor %}
+      </datalist>
+    </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;">

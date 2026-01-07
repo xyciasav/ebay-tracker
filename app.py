@@ -132,12 +132,14 @@ def create_app():
 
         platforms = get_distinct_values(Item, Item.platform)
         categories = get_distinct_values(Item, Item.category)
+        source_locations = get_distinct_values(Item, Item.source_location)
 
         return render_template(
             "index.html",
             items=items,
             platforms=platforms,
             categories=categories,
+            source_locations=source_locations,  # ✅ NEW
             sold_filter=sold_filter,
             platform_filter=platform,
             category_filter=category,
@@ -411,11 +413,14 @@ def create_app():
                 categories = get_distinct_values(Item, Item.category)
                 sub_categories = get_distinct_values(Item, Item.sub_category)
                 platforms = get_distinct_values(Item, Item.platform)
+                source_locations = get_distinct_values(Item, Item.source_location)
+
                 return render_template(
                     "item_new.html",
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
+                    source_locations=source_locations,  # ✅ NEW
                 )
 
             db.session.add(item)
@@ -492,12 +497,15 @@ def create_app():
                 categories = get_distinct_values(Item, Item.category)
                 sub_categories = get_distinct_values(Item, Item.sub_category)
                 platforms = get_distinct_values(Item, Item.platform)
+                source_locations = get_distinct_values(Item, Item.source_location)
+
                 return render_template(
                     "item_edit.html",
                     item=item,
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
+                    source_locations=source_locations,  # ✅ NEW
                 )
 
             # Add new photos if uploaded
