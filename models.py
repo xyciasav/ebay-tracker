@@ -1,7 +1,8 @@
-from datetime import datetime, date
+from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
+
 
 class Item(db.Model):
     """
@@ -9,68 +10,85 @@ class Item(db.Model):
     """
     __tablename__ = "items"
 
-    sku = db.Column(db.Integer, primary_key=True, autoincrement=True)  # SKU
+    sku = db.Column(db.Integer, primary_key=True, autoincrement=True)
     item_name = db.Column(db.String(255), nullable=False)
 
     category = db.Column(db.String(120), nullable=True)
     sub_category = db.Column(db.String(120), nullable=True)
     platform = db.Column(db.String(120), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+
     source_location = db.Column(db.String(120), nullable=True)
 
-    cog = db.Column(db.Float, nullable=True)          # cost of goods
+    # Money
+    cog = db.Column(db.Float, nullable=True)
     sale_price = db.Column(db.Float, nullable=True)
     ad_fee = db.Column(db.Float, nullable=True)
     ebay_fee = db.Column(db.Float, nullable=True)
     shipping = db.Column(db.Float, nullable=True)
     buyer_paid_amount = db.Column(db.Float, nullable=True)
 
+    # Dates
     date_listed = db.Column(db.Date, nullable=True)
     date_sold = db.Column(db.Date, nullable=True)
     sold = db.Column(db.Boolean, default=False, nullable=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
-    images = db.relationship("ItemImage", backref="item", cascade="all, delete-orphan")
+    images = db.relationship(
+        "ItemImage",
+        backref="item",
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
 
-    def _n(self, v):
-        """Treat None as 0 for math, like spreadsheets."""
+    # -----------------------------
+    # Spreadsheet-style helpers
+    # -----------------------------
+    def _n(self, v) -> float:
+        """Treat None as 0.0 for math (spreadsheet behavior)."""
         return float(v or 0.0)
 
     @property
     def net_cost(self) -> float:
-        # Net Cost = COG + Ad Fee + eBay Fee + Shipping
-        return self._n(self.cog) + self._n(self.ad_fee) + self._n(self.ebay_fee) + self._n(self.shipping)
+        """
+        Net Cost = COG + Ad Fee + eBay Fee + Shipping
+        """
+        return (
+            self._n(self.cog)
+            + self._n(self.ad_fee)
+            + self._n(self.ebay_fee)
+            + self._n(self.shipping)
+        )
 
     @property
     def gross_profit(self) -> float:
-        # Gross Profit = Buyer Paid Amount - Net Cost (if buyer amount blank -> negative net cost)
+        """
+        Gross Profit = Buyer Paid Amount - Net Cost
+        (Matches spreadsheet logic)
+        """
         return self._n(self.buyer_paid_amount) - self.net_cost
 
+    @property
+    def profit(self) -> float:
+        """
+        Alias for gross_profit.
+        This is what templates & reports should use.
+        """
+        return self.gross_profit
 
-    class ItemImage(db.Model):
-        __tablename__ = "item_images"
 
-        id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-        item_sku = db.Column(db.Integer, db.ForeignKey("items.sku"), nullable=False)
-        filename = db.Column(db.String(500), nullable=False)  # stored filename on disk
-        uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+class ItemImage(db.Model):
+    __tablename__ = "item_images"
 
-        class Item(db.Model):
-        __tablename__ = "items"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    item_sku = db.Column(db.Integer, db.ForeignKey("items.sku"), nullable=False)
 
-        # ... your existing columns ...
-
-        @property
-        def profit(self) -> float:
-            """
-            Profit = buyer_paid_amount - (cog + shipping + ad_fee + ebay_fee)
-            Uses 0.0 for missing values.
-            """
-            buyer_paid = float(self.buyer_paid_amount or 0.0)
-            cog = float(self.cog or 0.0)
-            shipping = float(self.shipping or 0.0)
-            ad_fee = float(self.ad_fee or 0.0)
-            ebay_fee = float(self.ebay_fee or 0.0)
-            return buyer_paid - (cog + shipping + ad_fee + ebay_fee)
+    filename = db.Column(db.String(500), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
