@@ -73,6 +73,22 @@
       </div>
     </div>
 
+<div>
+      <div class="small">Profit</div>
+      <div style="font-size:22px; font-weight:800;">
+        ${{ "%.2f"|format(item.profit) }}
+      </div>
+      <div class="small">
+        {% if item.sold %}
+          Sold
+        {% else %}
+          Not sold yet (profit is estimated if Buyer Paid is filled)
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
     {% if item.notes %}
       <div style="margin-top:12px;">
         <label>Notes</label>

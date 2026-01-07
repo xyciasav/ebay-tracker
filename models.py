@@ -49,10 +49,28 @@ class Item(db.Model):
         return self._n(self.buyer_paid_amount) - self.net_cost
 
 
-class ItemImage(db.Model):
-    __tablename__ = "item_images"
+    class ItemImage(db.Model):
+        __tablename__ = "item_images"
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    item_sku = db.Column(db.Integer, db.ForeignKey("items.sku"), nullable=False)
-    filename = db.Column(db.String(500), nullable=False)  # stored filename on disk
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+        id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+        item_sku = db.Column(db.Integer, db.ForeignKey("items.sku"), nullable=False)
+        filename = db.Column(db.String(500), nullable=False)  # stored filename on disk
+        uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+        class Item(db.Model):
+        __tablename__ = "items"
+
+        # ... your existing columns ...
+
+        @property
+        def profit(self) -> float:
+            """
+            Profit = buyer_paid_amount - (cog + shipping + ad_fee + ebay_fee)
+            Uses 0.0 for missing values.
+            """
+            buyer_paid = float(self.buyer_paid_amount or 0.0)
+            cog = float(self.cog or 0.0)
+            shipping = float(self.shipping or 0.0)
+            ad_fee = float(self.ad_fee or 0.0)
+            ebay_fee = float(self.ebay_fee or 0.0)
+            return buyer_paid - (cog + shipping + ad_fee + ebay_fee)
