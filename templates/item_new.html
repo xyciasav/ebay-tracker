@@ -36,6 +36,8 @@
           value="{{ item.barcode if item else '' }}"
           placeholder="Scan or type barcode"
           style="min-width:220px;"
+          inputmode="numeric"
+          autocomplete="off"
         />
 
         <button type="button" class="btn secondary" id="btnScanBarcode">
@@ -49,14 +51,13 @@
         <span class="small" id="barcodeStatus" style="min-width:220px;"></span>
       </div>
 
-      {# Preview is DIRECTLY under the button area #}
+      {# Preview DIRECTLY under the button area #}
       <div id="barcodeScannerWrap" style="display:none; margin-top:10px;">
         <div class="card" style="padding:10px; max-width:360px;">
           <div class="small" style="margin-bottom:8px;">Point camera at barcode</div>
 
           <video
             id="barcodeVideo"
-            autoplay
             playsinline
             webkit-playsinline
             muted
@@ -68,7 +69,7 @@
       </div>
 
       <div class="small" style="margin-top:6px;">
-        Tip: scanning needs HTTPS (or localhost). Hold steady and fill the frame with the barcode.
+        Tip: live scanning needs HTTPS (or localhost). If you use <code>http://10.0.0.230</code>, the camera will be blocked.
       </div>
     </div>
 
@@ -295,11 +296,23 @@
   </form>
 </div>
 
+{# ZXing (scanner) - this is the most reliable way to get a preview + decode on mobile #}
+<script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
+
 <script>
+  // ---------------- helpers ----------------
   function el(id){ return document.getElementById(id); }
 
-  let barcodeStream = null;
-  let playRetryTimer = null;
+  function toNum(v) {
+    if (v === null || v === undefined) return 0;
+    const s = String(v).trim().replace("$", "").replace(",", "");
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function money(n) {
+    if (!Number.isFinite(n)) return "—";
+    return "$" + n.toFixed(2);
+  }
 
   function setStatus(msg, isErr=false) {
     const s = el("barcodeStatus");
@@ -311,139 +324,219 @@
   function debug(msg) {
     const d = el("scannerDebug");
     if (!d) return;
-    d.textContent = msg;
+    d.textContent = msg || "";
   }
 
-  function stopInlineScanner() {
-    if (playRetryTimer) {
-      clearInterval(playRetryTimer);
-      playRetryTimer = null;
-    }
+  function ebaySoldUrl(q) {
+    const s = encodeURIComponent(q.trim());
+    return `https://www.ebay.com/sch/i.html?_nkw=${s}&LH_Sold=1&LH_Complete=1`;
+  }
+  function ebayActiveUrl(q) {
+    const s = encodeURIComponent(q.trim());
+    return `https://www.ebay.com/sch/i.html?_nkw=${s}`;
+  }
 
+  // ---------------- scanner state ----------------
+  let zxingReader = null;
+
+  function showScannerUI(show) {
+    el("barcodeScannerWrap").style.display = show ? "block" : "none";
+    el("btnCloseBarcode").style.display = show ? "inline-block" : "none";
+  }
+
+  async function stopScanner() {
+    try {
+      if (zxingReader) {
+        // Stops camera + decoding loop
+        zxingReader.stopContinuousDecode && zxingReader.stopContinuousDecode();
+      }
+    } catch(e) {}
+
+    // Also hard-stop any leftover stream tracks
     const video = el("barcodeVideo");
-    if (video) {
-      try { video.pause(); } catch(e) {}
-      try { video.srcObject = null; } catch(e) {}
-      try { video.load(); } catch(e) {}
+    if (video && video.srcObject) {
+      try {
+        const stream = video.srcObject;
+        stream.getTracks().forEach(t => t.stop());
+      } catch(e) {}
+      video.srcObject = null;
     }
 
-    if (barcodeStream) {
-      try { barcodeStream.getTracks().forEach(t => t.stop()); } catch(e) {}
-      barcodeStream = null;
-    }
+    setStatus("Scanner closed.");
+    debug("");
+    showScannerUI(false);
   }
 
-  async function startInlineScanner() {
-    // show UI FIRST so you're not starting camera on hidden elements
-    el("barcodeScannerWrap").style.display = "block";
-    el("btnCloseBarcode").style.display = "inline-block";
+  async function startScanner() {
+    showScannerUI(true);
     el("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
 
     debug("");
+    setStatus("");
 
     if (!window.isSecureContext) {
       setStatus("Camera requires HTTPS (secure context).", true);
-      debug(`isSecureContext=${window.isSecureContext}`);
+      debug(`isSecureContext=${window.isSecureContext}  url=${location.href}`);
       return;
     }
-
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setStatus("Camera API not available in this browser.", true);
-      debug(`navigator.mediaDevices=${!!navigator.mediaDevices}`);
+      debug("navigator.mediaDevices.getUserMedia missing");
+      return;
+    }
+    if (!window.ZXingBrowser) {
+      setStatus("Scanner library failed to load (ZXing).", true);
+      debug("ZXingBrowser missing (blocked by CSP / network?)");
       return;
     }
 
-    // Stop any previous stream (prevents weird “green icon but no preview” states)
-    stopInlineScanner();
+    // Create reader once
+    if (!zxingReader) {
+      zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
+    }
+
+    setStatus("Starting camera…");
+
+    // Prefer back camera if available
+    const hints = new Map();
+    // (No special hints needed; BrowserMultiFormatReader tries common formats)
 
     try {
-      setStatus("Requesting camera permission…");
+      // list devices, pick back camera if possible
+      const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+      const preferred = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
+      const deviceId = preferred ? preferred.deviceId : undefined;
 
-      // Ask for back camera + reasonable resolution
-      const constraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+      debug(`devices=${devices.length} using=${preferred ? preferred.label || preferred.deviceId : "default"}`);
+
+      // Continuous decode gives the most stable preview on mobile
+      await zxingReader.decodeFromVideoDevice(
+        deviceId,
+        el("barcodeVideo"),
+        (result, err) => {
+          if (result) {
+            const code = result.getText ? result.getText() : String(result.text || result);
+            el("barcode").value = code;
+
+            // If compsQuery is empty, fill it with barcode
+            const cq = el("compsQuery");
+            if (cq && !cq.value.trim()) cq.value = code;
+
+            setStatus("Scanned: " + code);
+            // Stop after first successful scan (less annoying)
+            stopScanner();
+          } else if (err) {
+            // ignore "NotFoundException" spam while scanning
+            const name = err.name || "";
+            if (name && name !== "NotFoundException") {
+              debug(`scan err: ${name}`);
+            }
+          }
         }
-      };
+      );
 
-      barcodeStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      const video = el("barcodeVideo");
-
-      // Force attributes Brave/Chrome want
-      video.setAttribute("playsinline", "");
-      video.setAttribute("webkit-playsinline", "");
-      video.setAttribute("muted", "");
-      video.muted = true;
-      video.autoplay = true; // important on mobile
-
-      video.srcObject = barcodeStream;
-
-      // Wait for metadata then play
-      await new Promise((resolve) => {
-        video.onloadedmetadata = () => resolve();
-      });
-
-      // Try play immediately
-      try {
-        await video.play();
-      } catch (e) {
-        // We'll retry below
-      }
-
-      // Retry play for ~2 seconds (Brave sometimes needs it)
-      let tries = 0;
-      playRetryTimer = setInterval(async () => {
-        tries++;
-        try {
-          await video.play();
-        } catch (e) {}
-
-        const w = video.videoWidth || 0;
-        const h = video.videoHeight || 0;
-        if (w && h) {
-          clearInterval(playRetryTimer);
-          playRetryTimer = null;
-          setStatus("Camera started. Point at barcode…");
-          debug(`OK: videoWidth=${w}, videoHeight=${h}, readyState=${video.readyState}`);
-        } else if (tries >= 10) {
-          clearInterval(playRetryTimer);
-          playRetryTimer = null;
-          setStatus("Camera is on, but preview isn't rendering. (Often Brave Shields / autoplay restriction)", true);
-          debug(`FAIL: videoWidth=${w}, videoHeight=${h}, readyState=${video.readyState}`);
-        }
-      }, 200);
+      setStatus("Camera ready. Point at barcode…");
 
     } catch (err) {
-      console.error("Camera error:", err);
+      console.error(err);
       const msg = (err && err.name) ? `${err.name}: ${err.message || ""}` : String(err);
       setStatus("Camera failed: " + msg, true);
       debug(msg);
-      stopInlineScanner();
+      await stopScanner();
     }
   }
 
+  // ---------------- comps + calculator ----------------
+  const LS_KEY = "ebayTrackerCompsDefaults";
+
+  function loadDefaults() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d && typeof d === "object") {
+        if (d.ebayFeePct != null) el("ebayFeePct").value = d.ebayFeePct;
+        if (d.adFeePct != null) el("adFeePct").value = d.adFeePct;
+        if (d.desiredProfit != null) el("desiredProfit").value = d.desiredProfit;
+        if (d.shipYouPay != null) el("shipYouPay").value = d.shipYouPay;
+      }
+    } catch (e) {}
+  }
+
+  function saveDefaults() {
+    const d = {
+      ebayFeePct: toNum(el("ebayFeePct").value),
+      adFeePct: toNum(el("adFeePct").value),
+      desiredProfit: toNum(el("desiredProfit").value),
+      shipYouPay: toNum(el("shipYouPay").value),
+    };
+    try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {}
+  }
+
+  function syncCompsQueryDefault() {
+    const cq = el("compsQuery");
+    if (!cq) return;
+    if (cq.value.trim()) return;
+    const b = (el("barcode")?.value || "").trim();
+    if (b) cq.value = b;
+  }
+
+  // ---------------- boot ----------------
   document.addEventListener("DOMContentLoaded", () => {
-    const btn = el("btnScanBarcode");
-    const closeBtn = el("btnCloseBarcode");
+    // Shipping preset -> input
+    el("shipPreset")?.addEventListener("change", () => {
+      const v = el("shipPreset").value;
+      if (v === "custom") return;
+      el("shipYouPay").value = v;
+    });
 
-    if (btn) {
-      btn.addEventListener("click", async () => {
-        await startInlineScanner();
-      });
-    }
+    // load calc defaults and seed compsQuery from barcode if present
+    loadDefaults();
+    syncCompsQueryDefault();
 
-    if (closeBtn) {
-      closeBtn.addEventListener("click", () => {
-        stopInlineScanner();
-        el("barcodeScannerWrap").style.display = "none";
-        closeBtn.style.display = "none";
-        setStatus("Scanner closed.");
-      });
-    }
+    // keep compsQuery updated if barcode gets typed (or scanned)
+    el("barcode")?.addEventListener("input", () => {
+      syncCompsQueryDefault();
+    });
+
+    // open ebay links
+    el("btnOpenSold")?.addEventListener("click", () => {
+      syncCompsQueryDefault();
+      const q = el("compsQuery").value.trim();
+      if (!q) { alert("Enter a barcode or keywords first."); return; }
+      window.open(ebaySoldUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    el("btnOpenActive")?.addEventListener("click", () => {
+      syncCompsQueryDefault();
+      const q = el("compsQuery").value.trim();
+      if (!q) { alert("Enter a barcode or keywords first."); return; }
+      window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    // calculate
+    el("btnCalcMaxBuy")?.addEventListener("click", () => {
+      const avgSold = toNum(el("avgSoldPrice").value);
+      const shipPay = toNum(el("shipYouPay").value);
+      const ebayPct = toNum(el("ebayFeePct").value) / 100.0;
+      const adPct = toNum(el("adFeePct").value) / 100.0;
+      const desired = toNum(el("desiredProfit").value);
+
+      saveDefaults();
+
+      if (avgSold <= 0) { alert("Enter an Avg sold price first."); return; }
+
+      const feeTotal = avgSold * (ebayPct + adPct);
+      const maxBuy = avgSold - shipPay - feeTotal - desired;
+      const estProfit = avgSold - (maxBuy + shipPay + feeTotal);
+
+      el("maxBuyOut").textContent = money(maxBuy);
+      el("profitOut").textContent = money(estProfit);
+    });
+
+    // scanner buttons
+    el("btnScanBarcode")?.addEventListener("click", startScanner);
+    el("btnCloseBarcode")?.addEventListener("click", stopScanner);
   });
 </script>
 
