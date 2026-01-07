@@ -22,6 +22,42 @@
       </div>
     </div>
 
+    <div style="margin-top:10px;">
+  <label>Barcode (UPC/EAN)</label>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+    <input
+      type="text"
+      name="barcode"
+      id="barcode"
+      value="{{ item.barcode if item else '' }}"
+      placeholder="Scan or type barcode"
+      style="min-width:220px;"
+    />
+
+    <button type="button" class="btn secondary" id="btnScanBarcode">
+      Scan Barcode
+    </button>
+
+    <span class="small" id="barcodeStatus" style="min-width:220px;"></span>
+  </div>
+
+  <div class="small">
+    Tip: scanning needs HTTPS (or localhost). If it can’t access the camera, you’ll see a message here.
+  </div>
+
+  <div id="barcodeScannerWrap" style="display:none; margin-top:10px;">
+    <div class="card" style="padding:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <strong>Barcode Scanner</strong>
+        <button type="button" class="btn secondary" id="btnCloseBarcode">Close</button>
+      </div>
+      <video id="barcodeVideo" style="width:100%; max-width:520px; margin-top:10px; border-radius:10px;"></video>
+    </div>
+  </div>
+</div>
+
+
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;">
         <label>Category</label>

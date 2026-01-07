@@ -1,11 +1,12 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote
+
 from sqlalchemy import func, case, text
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
+
 from models import db, Item, ItemImage
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -41,21 +42,7 @@ def parse_date(value: str):
 
 
 def get_distinct_values(model, column):
-    """
-    Returns distinct non-empty values for a column.
-    Safe: if the column doesn't exist yet (DB not migrated), returns [] instead of crashing.
-    """
-    try:
-        rows = (
-            db.session.query(column)
-            .distinct()
-            .filter(column.isnot(None))
-            .order_by(column)
-            .all()
-        )
-    except Exception:
-        return []
-
+    rows = db.session.query(column).distinct().filter(column.isnot(None)).order_by(column).all()
     values = []
     for r in rows:
         if not r or r[0] is None:
@@ -74,39 +61,29 @@ def process_image(path: str, max_size: int = 1600):
     try:
         img = Image.open(path)
         img = ImageOps.exif_transpose(img)  # auto-rotate correctly
-        img.thumbnail((max_size, max_size))  # longest side <= max_size
+        img.thumbnail((max_size, max_size))  # keep aspect ratio
 
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
         img.save(path, optimize=True, quality=85)
+
     except Exception as e:
         print(f"Image processing failed for {path}: {e}")
 
 
-def ensure_sqlite_column(table_name: str, column_name: str, column_type_sql: str):
-    """
-    Tiny, pragmatic migration helper for SQLite:
-    - If we're on SQLite and column is missing, ALTER TABLE ADD COLUMN.
-    - Keeps your existing data intact.
-    """
+def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
     try:
-        if db.engine.dialect.name != "sqlite":
-            return
+        rows = db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+        cols = [r[1] for r in rows]  # second field is name
+        return column_name in cols
+    except Exception:
+        return False
 
-        table_info = db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
-        if not table_info:
-            return
 
-        existing_cols = {row[1] for row in table_info}
-        if column_name in existing_cols:
-            return
-
-        db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
-        db.session.commit()
-        print(f"[migrate] Added column {table_name}.{column_name} ({column_type_sql})")
-    except Exception as e:
-        print(f"[migrate] Failed to ensure column {table_name}.{column_name}: {e}")
+def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
+    db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
+    db.session.commit()
 
 
 def create_app():
@@ -115,7 +92,7 @@ def create_app():
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "SQLALCHEMY_DATABASE_URI",
-        "sqlite:///ebay_tracker.db",
+        "sqlite:///ebay_tracker.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -124,11 +101,39 @@ def create_app():
     app.config["UPLOAD_FOLDER"] = upload_folder
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
+    # Defaults for estimator (can be overridden by env vars)
+    app.config["EST_EBAY_FEE_PCT"] = float(os.environ.get("EST_EBAY_FEE_PCT", "13.25"))  # %
+    app.config["EST_EBAY_FIXED_FEE"] = float(os.environ.get("EST_EBAY_FIXED_FEE", "0.30"))  # $
+    app.config["EST_AD_FEE_PCT"] = float(os.environ.get("EST_AD_FEE_PCT", "0"))  # %
+    app.config["EST_SHIP_SMALL"] = float(os.environ.get("EST_SHIP_SMALL", "6.50"))
+    app.config["EST_SHIP_MED"] = float(os.environ.get("EST_SHIP_MED", "9.50"))
+    app.config["EST_SHIP_LARGE"] = float(os.environ.get("EST_SHIP_LARGE", "14.50"))
+
     db.init_app(app)
 
     with app.app_context():
         db.create_all()
-        ensure_sqlite_column("items", "source_location", "TEXT")
+
+        # Lightweight “migration” for SQLite for new columns
+        if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+            if not _sqlite_column_exists("items", "source_location"):
+                _sqlite_add_column("items", "source_location", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "barcode"):
+                _sqlite_add_column("items", "barcode", "VARCHAR(64)")
+
+    @app.context_processor
+    def inject_estimator_defaults():
+        # available in all templates
+        return dict(
+            est_defaults={
+                "ebay_fee_pct": app.config["EST_EBAY_FEE_PCT"],
+                "ebay_fixed_fee": app.config["EST_EBAY_FIXED_FEE"],
+                "ad_fee_pct": app.config["EST_AD_FEE_PCT"],
+                "ship_small": app.config["EST_SHIP_SMALL"],
+                "ship_med": app.config["EST_SHIP_MED"],
+                "ship_large": app.config["EST_SHIP_LARGE"],
+            }
+        )
 
     @app.route("/uploads/items/<path:filename>")
     def uploaded_file(filename):
@@ -155,11 +160,12 @@ def create_app():
         if q:
             like = f"%{q}%"
             query = query.filter(
-                (Item.item_name.ilike(like))
-                | (Item.notes.ilike(like))
-                | (Item.sub_category.ilike(like))
-                | (Item.category.ilike(like))
-                | (Item.platform.ilike(like))
+                (Item.item_name.ilike(like)) |
+                (Item.notes.ilike(like)) |
+                (Item.sub_category.ilike(like)) |
+                (Item.category.ilike(like)) |
+                (Item.source_location.ilike(like)) |
+                (Item.barcode.ilike(like))
             )
 
         items = query.order_by(Item.sku.desc()).all()
@@ -219,7 +225,6 @@ def create_app():
         else:
             range_key = "all"
 
-        # Sold-date filters (inclusive)
         sold_date_filters = []
         if start_date:
             sold_date_filters.append(Item.date_sold.isnot(None))
@@ -247,9 +252,6 @@ def create_app():
         category_col = func.coalesce(Item.category, "Uncategorized")
         source_col = func.coalesce(Item.source_location, "Unknown")
 
-        # -----------------------------
-        # KPIs
-        # -----------------------------
         total_items = Item.query.count()
 
         sold_items_q = Item.query.filter(Item.sold.is_(True))
@@ -275,13 +277,10 @@ def create_app():
         )
         if sold_date_filters:
             avg_days_to_sell_q = avg_days_to_sell_q.filter(*sold_date_filters)
-
         avg_days_to_sell = avg_days_to_sell_q.scalar()
         avg_days_to_sell = float(avg_days_to_sell) if avg_days_to_sell is not None else 0.0
 
-        # -----------------------------
         # By Category (existing)
-        # -----------------------------
         sold_count_all = func.sum(case((Item.sold.is_(True), 1), else_=0))
         unsold_count = func.sum(case((Item.sold.is_(False), 1), else_=0))
         total_count = func.count(Item.sku)
@@ -328,7 +327,6 @@ def create_app():
         )
         if sold_date_filters:
             sold_metrics_q = sold_metrics_q.filter(*sold_date_filters)
-
         sold_rows = sold_metrics_q.group_by(category_col).all()
 
         sold_map = {}
@@ -363,39 +361,45 @@ def create_app():
             )
         by_category.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
-        # -----------------------------
-        # ✅ NEW: By Source Location
-        # -----------------------------
-        # Inventory / sitting stats by source (all items)
-        rows_source_counts = (
-            db.session.query(
-                source_col.label("source"),
-                func.sum(case((Item.sold.is_(True), 1), else_=0)).label("sold_count_all"),
-                func.sum(case((Item.sold.is_(False), 1), else_=0)).label("unsold_count"),
-                func.count(Item.sku).label("total_count"),
-                func.avg(
-                    case(
-                        (
-                            (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
-                            func.julianday(func.current_date()) - func.julianday(Item.date_listed),
-                        ),
-                        else_=None,
-                    )
-                ).label("avg_days_listed_unsold"),
-                func.avg(
-                    case(
-                        ((Item.sold.is_(False)) & (Item.cog.isnot(None)), Item.cog),
-                        else_=None,
-                    )
-                ).label("avg_cog_unsold"),
+        # By Source Location (NEW)
+        sold_count_src = func.sum(case((Item.sold.is_(True), 1), else_=0))
+        unsold_count_src = func.sum(case((Item.sold.is_(False), 1), else_=0))
+        total_count_src = func.count(Item.sku)
+
+        sold_profit_src = func.coalesce(func.sum(case((Item.sold.is_(True), profit_expr), else_=0.0)), 0.0)
+        avg_profit_src = func.avg(case((Item.sold.is_(True), profit_expr), else_=None))
+        avg_days_to_sell_src = func.avg(case((Item.sold.is_(True), days_to_sell_expr), else_=None))
+
+        avg_days_listed_unsold_src = func.avg(
+            case(
+                (
+                    (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
+                    func.julianday(func.current_date()) - func.julianday(Item.date_listed),
+                ),
+                else_=None,
             )
-            .group_by(source_col)
-            .all()
         )
 
-        source_counts_map = {}
-        for r in rows_source_counts:
-            source_counts_map[r.source] = {
+        avg_cog_unsold_src = func.avg(
+            case(
+                ((Item.sold.is_(False)) & (Item.cog.isnot(None)), Item.cog),
+                else_=None,
+            )
+        )
+
+        src_base_q = db.session.query(
+            source_col.label("source"),
+            sold_count_src.label("sold_count_all"),
+            unsold_count_src.label("unsold_count"),
+            total_count_src.label("total_count"),
+            avg_days_listed_unsold_src.label("avg_days_listed_unsold"),
+            avg_cog_unsold_src.label("avg_cog_unsold"),
+        ).group_by(source_col)
+
+        src_rows_counts = src_base_q.all()
+        src_counts_map = {}
+        for r in src_rows_counts:
+            src_counts_map[r.source] = {
                 "source": r.source,
                 "unsold_count": int(r.unsold_count or 0),
                 "total_count": int(r.total_count or 0),
@@ -403,47 +407,43 @@ def create_app():
                 "avg_cog_unsold": float(r.avg_cog_unsold) if r.avg_cog_unsold is not None else None,
             }
 
-        # Sold/profit stats by source (sold in range)
-        sold_source_q = (
-            db.session.query(
-                source_col.label("source"),
-                func.count(Item.sku).label("sold_count"),
-                func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
-                func.avg(profit_expr).label("avg_profit"),
-                func.avg(days_to_sell_expr).label("avg_days_to_sell"),
-            )
-            .filter(Item.sold.is_(True))
-        )
+        src_sold_q = db.session.query(
+            source_col.label("source"),
+            func.count(Item.sku).label("sold_count"),
+            func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
+            func.avg(profit_expr).label("avg_profit"),
+            func.avg(days_to_sell_expr).label("avg_days_to_sell"),
+        ).filter(Item.sold.is_(True))
+
         if sold_date_filters:
-            sold_source_q = sold_source_q.filter(*sold_date_filters)
+            src_sold_q = src_sold_q.filter(*sold_date_filters)
 
-        sold_source_rows = sold_source_q.group_by(source_col).all()
-
-        sold_source_map = {}
-        for r in sold_source_rows:
-            sold_source_map[r.source] = {
+        src_sold_rows = src_sold_q.group_by(source_col).all()
+        src_sold_map = {}
+        for r in src_sold_rows:
+            src_sold_map[r.source] = {
                 "sold_count": int(r.sold_count or 0),
                 "total_profit": float(r.total_profit or 0.0),
                 "avg_profit": float(r.avg_profit) if r.avg_profit is not None else 0.0,
                 "avg_days_to_sell": float(r.avg_days_to_sell) if r.avg_days_to_sell is not None else None,
             }
 
-        # Merge into by_source list
         by_source = []
-        all_sources = sorted(set(list(source_counts_map.keys()) + list(sold_source_map.keys())))
+        all_sources = sorted(set(list(src_counts_map.keys()) + list(src_sold_map.keys())))
         for src in all_sources:
-            c = source_counts_map.get(src, {"unsold_count": 0, "total_count": 0, "avg_days_listed_unsold": None, "avg_cog_unsold": None})
-            s = sold_source_map.get(src, {"sold_count": 0, "total_profit": 0.0, "avg_profit": 0.0, "avg_days_to_sell": None})
+            c = src_counts_map.get(src, {"unsold_count": 0, "total_count": 0, "avg_days_listed_unsold": None, "avg_cog_unsold": None})
+            s = src_sold_map.get(src, {"sold_count": 0, "total_profit": 0.0, "avg_profit": 0.0, "avg_days_to_sell": None})
 
             total_count_val = int(c.get("total_count") or 0)
             sold_count_val = int(s.get("sold_count") or 0)
+            unsold_count_val = int(c.get("unsold_count") or 0)
             sold_rate_pct_src = (sold_count_val * 100.0 / total_count_val) if total_count_val else 0.0
 
             by_source.append(
                 {
                     "source": src,
                     "sold_count": sold_count_val,
-                    "unsold_count": int(c.get("unsold_count") or 0),
+                    "unsold_count": unsold_count_val,
                     "sold_rate_pct": float(sold_rate_pct_src),
                     "total_profit": float(s.get("total_profit") or 0.0),
                     "avg_profit": float(s.get("avg_profit") or 0.0),
@@ -453,76 +453,35 @@ def create_app():
                 }
             )
 
-        # Order: best profit sources first (then sold count)
-        by_source.sort(key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True)
+        by_source.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
-        # -----------------------------
-        # Top profit items (sold in range) + thumbnail
-        # -----------------------------
-        # Top N selector (you wanted 5–10)
-        try:
-            top_n = int(request.args.get("top", 10))
-        except ValueError:
-            top_n = 10
-        top_n = max(5, min(10, top_n))  # clamp to 5..10
-
-        # Inline SVG placeholder so you don't need a file on disk
-        placeholder_thumb = "data:image/svg+xml;utf8," + quote(
-            """<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'>
-                 <rect width='100%' height='100%' fill='#0b1220'/>
-                 <rect x='10' y='18' width='76' height='56' rx='8' ry='8' fill='#101b33' stroke='#2a3a66'/>
-                 <path d='M22 62l16-16 12 12 10-10 14 14' fill='none' stroke='#2a3a66' stroke-width='4'/>
-                 <circle cx='38' cy='38' r='6' fill='#2a3a66'/>
-               </svg>"""
-        )
-
-        # Grab "first image filename" per SKU using a correlated subquery
-        order_col = ItemImage.id if hasattr(ItemImage, "id") else ItemImage.filename
-        thumb_filename_sq = (
-            db.session.query(ItemImage.filename)
-            .filter(ItemImage.item_sku == Item.sku)
-            .order_by(order_col.asc())
-            .limit(1)
-            .correlate(Item)
-            .scalar_subquery()
-        )
-
+        # Top profit items (sold in range)
         top_q = (
             db.session.query(
                 Item.sku,
                 Item.item_name,
                 category_col.label("category"),
-                source_col.label("source"),
                 profit_expr.label("profit"),
                 days_to_sell_expr.label("days_to_sell"),
                 Item.date_sold.label("date_sold"),
-                thumb_filename_sq.label("thumb_filename"),
             )
             .filter(Item.sold.is_(True))
         )
         if sold_date_filters:
             top_q = top_q.filter(*sold_date_filters)
 
-        top_rows = top_q.order_by(profit_expr.desc()).limit(top_n).all()
+        top_rows = top_q.order_by(profit_expr.desc()).limit(15).all()
 
         top_profit = []
         for r in top_rows:
-            thumb_url = (
-                url_for("uploaded_file", filename=r.thumb_filename)
-                if getattr(r, "thumb_filename", None)
-                else placeholder_thumb
-            )
-
             top_profit.append(
                 {
                     "sku": r.sku,
                     "item_name": r.item_name,
                     "category": r.category,
-                    "source": r.source,
                     "profit": float(r.profit or 0.0),
                     "days_to_sell": float(r.days_to_sell) if r.days_to_sell is not None else None,
                     "date_sold": r.date_sold.isoformat() if r.date_sold else None,
-                    "thumb_url": thumb_url,
                 }
             )
 
@@ -544,7 +503,6 @@ def create_app():
             range_key=range_key,
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
-            top_n=top_n,  # ✅ add this
         )
 
     @app.route("/item/new", methods=["GET", "POST"])
@@ -557,6 +515,7 @@ def create_app():
                 platform=request.form.get("platform", "").strip() or None,
                 notes=request.form.get("notes", "").strip() or None,
                 source_location=request.form.get("source_location", "").strip() or None,
+                barcode=request.form.get("barcode", "").strip() or None,
                 cog=parse_float(request.form.get("cog")),
                 sale_price=parse_float(request.form.get("sale_price")),
                 ad_fee=parse_float(request.form.get("ad_fee")),
@@ -583,7 +542,7 @@ def create_app():
                 )
 
             db.session.add(item)
-            db.session.commit()
+            db.session.commit()  # assigns SKU
 
             files = request.files.getlist("photos")
             for f in files:
@@ -612,7 +571,6 @@ def create_app():
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
         source_locations = get_distinct_values(Item, Item.source_location)
-
         return render_template(
             "item_new.html",
             categories=categories,
@@ -637,6 +595,7 @@ def create_app():
             item.platform = request.form.get("platform", "").strip() or None
             item.notes = request.form.get("notes", "").strip() or None
             item.source_location = request.form.get("source_location", "").strip() or None
+            item.barcode = request.form.get("barcode", "").strip() or None
 
             item.cog = parse_float(request.form.get("cog"))
             item.sale_price = parse_float(request.form.get("sale_price"))
@@ -691,7 +650,6 @@ def create_app():
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
         source_locations = get_distinct_values(Item, Item.source_location)
-
         return render_template(
             "item_edit.html",
             item=item,
