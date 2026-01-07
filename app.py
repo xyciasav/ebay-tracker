@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_httpauth import HTTPBasicAuth
 from functools import wraps
+from flask import request
 
 
 from models import db, Item, ItemImage
@@ -167,6 +168,20 @@ def create_app():
     # HTTP Basic Auth (browser popup)
     basic_auth = HTTPBasicAuth()
 
+    @app.get("/item/new")
+    def item_new():
+        # ... your existing data loads: categories/platforms/etc.
+        prefill_barcode = request.args.get("barcode", "").strip()
+        return render_template(
+            "item_new.html",
+            item=None,
+            platforms=platforms,
+            categories=categories,
+            sub_categories=sub_categories,
+            source_locations=source_locations,
+            prefill_barcode=prefill_barcode,
+        )
+
     @basic_auth.verify_password
     def verify_password(username, password):
         if AUTH_MODE != "basic":
@@ -203,8 +218,14 @@ def create_app():
 
         return wrapper
 
+    @app.get("/tools/scanner")
+    @auth_required
+    def scanner_tool():
+        return render_template("scanner_tool.html")
+
 
     @app.route("/uploads/items/<path:filename>")
+    @auth_required
     def uploaded_file(filename):
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 

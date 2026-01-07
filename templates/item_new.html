@@ -24,6 +24,7 @@
       </div>
     </div>
 
+    
     {# ---------------- BARCODE + SCANNER (INLINE, SMALL) ---------------- #}
     <div style="margin-top:10px;">
       <label>Barcode (UPC/EAN)</label>
@@ -33,7 +34,7 @@
           type="text"
           name="barcode"
           id="barcode"
-          value="{{ item.barcode if item else '' }}"
+          value="{{ (item.barcode if item else prefill_barcode) }}"
           placeholder="Scan or type barcode"
           style="min-width:220px;"
           inputmode="numeric"
@@ -68,11 +69,7 @@
         </div>
       </div>
 
-      <div class="small" style="margin-top:6px;">
-        Tip: live scanning needs HTTPS (or localhost). If you use <code>http://10.0.0.230</code>, the camera will be blocked.
-      </div>
-    </div>
-
+ 
     <hr style="margin:18px 0; border:0; border-top:1px solid var(--border);" />
 
     {# ---------------- COMPS + CALCULATOR ---------------- #}
