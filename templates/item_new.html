@@ -46,6 +46,205 @@
     Tip: scanning needs HTTPS (or localhost). If it can’t access the camera, you’ll see a message here.
   </div>
 
+<hr style="margin:18px 0; border:0; border-top:1px solid var(--border);" />
+
+<div class="card" style="margin-top:12px;">
+  <h3 style="margin:0 0 10px 0;">Comps (Quick Check)</h3>
+  <div class="small" style="margin-bottom:10px;">
+    Scan a barcode (or type keywords), then open sold listings on eBay. Use the calculator to estimate your max buy price.
+  </div>
+
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end;">
+    <div>
+      <label>Search phrase (barcode or keywords)</label>
+      <input
+        id="compsQuery"
+        type="text"
+        placeholder="UPC/Barcode or keywords like: Klask board game"
+      />
+      <div class="small" style="margin-top:6px;">
+        Tip: keywords often work better than UPC for used items.
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button type="button" class="btn" id="btnOpenSold">
+        Open eBay Sold Comps
+      </button>
+      <button type="button" class="btn secondary" id="btnOpenActive">
+        Open eBay Active Listings
+      </button>
+    </div>
+  </div>
+
+  <hr style="margin:14px 0; border:0; border-top:1px solid var(--border2);" />
+
+  <h4 style="margin:0 0 10px 0;">Worth it? (Max Buy Price)</h4>
+
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
+    <div>
+      <label>Avg sold price (you eyeball)</label>
+      <input id="avgSoldPrice" type="number" step="0.01" placeholder="e.g. 34.99" />
+    </div>
+
+    <div>
+      <label>Shipping you pay</label>
+      <input id="shipYouPay" type="number" step="0.01" placeholder="e.g. 8.50" />
+    </div>
+
+    <div>
+      <label>eBay fee % (approx)</label>
+      <input id="ebayFeePct" type="number" step="0.01" value="13.25" />
+    </div>
+
+    <div>
+      <label>Ad fee % (if promoted)</label>
+      <input id="adFeePct" type="number" step="0.01" value="0" />
+    </div>
+
+    <div>
+      <label>Desired profit</label>
+      <input id="desiredProfit" type="number" step="0.01" value="15" />
+    </div>
+
+    <div>
+      <button type="button" class="btn" id="btnCalcMaxBuy">Calculate</button>
+    </div>
+  </div>
+
+  <div class="small" style="margin-top:10px;">
+    Uses: <code>max_buy = avg_sold - shipping_you_pay - (avg_sold * (ebay_fee% + ad_fee%)) - desired_profit</code>
+  </div>
+
+  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div class="card" style="padding:10px 12px;">
+      <div class="small">Max Buy Price</div>
+      <div style="font-size:22px; font-weight:800;" id="maxBuyOut">$—</div>
+    </div>
+
+    <div class="card" style="padding:10px 12px;">
+      <div class="small">Estimated Profit (if you pay Max)</div>
+      <div style="font-size:22px; font-weight:800;" id="profitOut">$—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // --- Helpers ---
+  function $(id) { return document.getElementById(id); }
+  function toNum(v) {
+    if (v === null || v === undefined) return 0;
+    const s = String(v).trim().replace("$", "").replace(",", "");
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function money(n) {
+    if (!Number.isFinite(n)) return "—";
+    return "$" + n.toFixed(2);
+  }
+  function ebaySoldUrl(q) {
+    const s = encodeURIComponent(q.trim());
+    return `https://www.ebay.com/sch/i.html?_nkw=${s}&LH_Sold=1&LH_Complete=1`;
+  }
+  function ebayActiveUrl(q) {
+    const s = encodeURIComponent(q.trim());
+    return `https://www.ebay.com/sch/i.html?_nkw=${s}`;
+  }
+
+  // --- Auto-fill compsQuery from your barcode field if present ---
+  // Change "barcode" below if your input name/id differs.
+  function getBarcodeValue() {
+    // try common patterns
+    const el =
+      document.querySelector('input[name="barcode"]') ||
+      document.getElementById("barcode") ||
+      document.querySelector('input[data-barcode="1"]');
+    return el ? el.value : "";
+  }
+
+  function syncQueryDefault() {
+    const existing = $("compsQuery").value.trim();
+    if (existing) return;
+    const b = (getBarcodeValue() || "").trim();
+    if (b) $("compsQuery").value = b;
+  }
+
+  // Save calculator defaults so it "remembers" like categories do
+  const LS_KEY = "ebayTrackerCompsDefaults";
+  function loadDefaults() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d && typeof d === "object") {
+        if (d.ebayFeePct != null) $("ebayFeePct").value = d.ebayFeePct;
+        if (d.adFeePct != null) $("adFeePct").value = d.adFeePct;
+        if (d.desiredProfit != null) $("desiredProfit").value = d.desiredProfit;
+        if (d.shipYouPay != null) $("shipYouPay").value = d.shipYouPay;
+      }
+    } catch (e) {}
+  }
+  function saveDefaults() {
+    const d = {
+      ebayFeePct: toNum($("ebayFeePct").value),
+      adFeePct: toNum($("adFeePct").value),
+      desiredProfit: toNum($("desiredProfit").value),
+      shipYouPay: toNum($("shipYouPay").value),
+    };
+    try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {}
+  }
+
+  // --- Wire buttons ---
+  document.addEventListener("DOMContentLoaded", () => {
+    loadDefaults();
+    syncQueryDefault();
+
+    $("btnOpenSold").addEventListener("click", () => {
+      syncQueryDefault();
+      const q = $("compsQuery").value.trim();
+      if (!q) { alert("Enter a barcode or keywords first."); return; }
+      window.open(ebaySoldUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    $("btnOpenActive").addEventListener("click", () => {
+      syncQueryDefault();
+      const q = $("compsQuery").value.trim();
+      if (!q) { alert("Enter a barcode or keywords first."); return; }
+      window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    $("btnCalcMaxBuy").addEventListener("click", () => {
+      const avgSold = toNum($("avgSoldPrice").value);
+      const shipPay = toNum($("shipYouPay").value);
+      const ebayPct = toNum($("ebayFeePct").value) / 100.0;
+      const adPct = toNum($("adFeePct").value) / 100.0;
+      const desired = toNum($("desiredProfit").value);
+
+      saveDefaults();
+
+      if (avgSold <= 0) { alert("Enter an Avg sold price first."); return; }
+
+      const feeTotal = avgSold * (ebayPct + adPct);
+      const maxBuy = avgSold - shipPay - feeTotal - desired;
+
+      // If you buy at maxBuy, estimated profit should ≈ desiredProfit
+      const estProfit = avgSold - (maxBuy + shipPay + feeTotal);
+
+      $("maxBuyOut").textContent = money(maxBuy);
+      $("profitOut").textContent = money(estProfit);
+    });
+
+    // If barcode changes later (scan), auto-populate compsQuery if it was empty
+    const barcodeEl = document.querySelector('input[name="barcode"]') || document.getElementById("barcode");
+    if (barcodeEl) {
+      barcodeEl.addEventListener("input", () => {
+        const q = $("compsQuery").value.trim();
+        if (!q) syncQueryDefault();
+      });
+    }
+  });
+</script>
+
   <div id="barcodeScannerWrap" style="display:none; margin-top:10px;">
     <div class="card" style="padding:10px;">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
