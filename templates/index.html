@@ -42,66 +42,57 @@
 </div>
 
 <div class="card" style="margin-top:14px;">
-  <table>
-    <thead>
+<table class="table">
+  <thead>
+    <tr>
+      <th>SKU</th>
+      <th>Item</th>
+      <th>Category</th>
+      <th>Platform</th>
+      <th>Source</th>
+      <th>COG</th>
+      <th>Sold</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+
+  <tbody>
+    {% for item in items %}
       <tr>
-        <th>SKU</th>
-        <th>Item Name</th>
-        <th>Category</th>
-        <th>Sub-Category</th>
-        <th>Platform</th>
-        <th>Notes</th>
-        <th class="right">COG</th>
-        <th class="right">Sale Price</th>
-        <th class="right">Ad Fee</th>
-        <th class="right">eBay Fee</th>
-        <th class="right">Shipping</th>
-        <th class="right">Buyer Paid</th>
-        <th class="right">Net Cost</th>
-        <th class="right">Gross Profit</th>
-        <th>Date Listed</th>
-        <th>Date Sold</th>
-        <th>Sold</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for it in items %}
-      <tr>
-        <td><a href="{{ url_for('item_detail', sku=it.sku) }}">{{ it.sku }}</a></td>
+        <td>{{ item.sku }}</td>
+
         <td>
-          <a href="{{ url_for('item_detail', sku=it.sku) }}"><strong>{{ it.item_name }}</strong></a>
-          {% if it.images|length > 0 %}
-            <div class="small">{{ it.images|length }} photo(s)</div>
-          {% endif %}
+          <a href="{{ url_for('item_detail', sku=item.sku) }}">
+            {{ item.item_name }}
+          </a>
         </td>
-        <td>{{ it.category or "" }}</td>
-        <td>{{ it.sub_category or "" }}</td>
-        <td>{{ it.platform or "" }}</td>
-        <td class="small">{{ it.notes or "" }}</td>
-        <td class="right">{{ "%.2f"|format(it.cog or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.sale_price or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.ad_fee or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.ebay_fee or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.shipping or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.buyer_paid_amount or 0) }}</td>
-        <td class="right">{{ "%.2f"|format(it.net_cost) }}</td>
-        <td class="right"><strong>{{ "%.2f"|format(it.gross_profit) }}</strong></td>
+
+        <td>{{ item.category or '' }}</td>
+        <td>{{ item.platform or '' }}</td>
+
+        <!-- ✅ NEW COLUMN (must be inside the loop) -->
         <td>{{ item.source_location or '' }}</td>
-        <td>{{ it.date_listed or "" }}</td>
-        <td>{{ it.date_sold or "" }}</td>
+
         <td>
-          {% if it.sold %}
-            <span class="pill">Y</span>
-          {% else %}
-            <span class="pill">N</span>
+          {% if item.cog is not none %}
+            ${{ '%.2f'|format(item.cog) }}
           {% endif %}
         </td>
+
+        <td>
+          {% if item.sold %}
+            <span class="pill">Sold</span>
+          {% else %}
+            <span class="pill secondary">Unsold</span>
+          {% endif %}
+        </td>
+
+        <td>
+          <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
+        </td>
       </tr>
-      {% endfor %}
-      {% if items|length == 0 %}
-        <tr><td colspan="17" class="small">No items yet. Click “+ New Item”.</td></tr>
-      {% endif %}
-    </tbody>
-  </table>
+    {% endfor %}
+  </tbody>
+</table>
 </div>
 {% endblock %}
