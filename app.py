@@ -1,11 +1,15 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-
 from sqlalchemy import func, case, text
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_httpauth import HTTPBasicAuth
+from functools import wraps
+
 
 from models import db, Item, ItemImage
 
@@ -135,12 +139,79 @@ def create_app():
             }
         )
 
+    # -----------------------------
+    # Auth config
+    # -----------------------------
+    AUTH_MODE = (os.environ.get("AUTH_MODE", "off") or "off").lower()
+
+    # Flask-Login setup
+    login_manager = LoginManager()
+    login_manager.login_view = "login"
+    login_manager.init_app(app)
+
+    # Simple in-memory user for now (basic auth / simple form login)
+    BASIC_USER = os.environ.get("BASIC_AUTH_USER", "")
+    BASIC_PASS = os.environ.get("BASIC_AUTH_PASS", "")
+    BASIC_PASS_HASH = generate_password_hash(BASIC_PASS) if BASIC_PASS else ""
+
+    class SimpleUser(UserMixin):
+        def __init__(self, user_id: str):
+            self.id = user_id
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        if BASIC_USER and user_id == BASIC_USER:
+            return SimpleUser(user_id)
+        return None
+
+    # HTTP Basic Auth (browser popup)
+    basic_auth = HTTPBasicAuth()
+
+    @basic_auth.verify_password
+    def verify_password(username, password):
+        if AUTH_MODE != "basic":
+            return False
+        if not BASIC_USER or not BASIC_PASS_HASH:
+            return False
+        if username == BASIC_USER and check_password_hash(BASIC_PASS_HASH, password or ""):
+            return True
+        return False
+
+    def auth_required(view_func):
+        """
+        Single decorator that enforces auth based on AUTH_MODE.
+        - off: no auth
+        - basic: HTTP Basic (works everywhere, incl. Cloudflare)
+        - oidc: (we'll add below) requires Flask-Login session
+        """
+        @wraps(view_func)
+        def wrapper(*args, **kwargs):
+            if AUTH_MODE == "off":
+                return view_func(*args, **kwargs)
+
+            if AUTH_MODE == "basic":
+                return basic_auth.login_required(view_func)(*args, **kwargs)
+
+            if AUTH_MODE == "oidc":
+                # Keycloak mode uses session login
+                if not current_user.is_authenticated:
+                    return redirect(url_for("login", next=request.path))
+                return view_func(*args, **kwargs)
+
+            # default safe
+            return ("Auth misconfigured", 500)
+
+        return wrapper
+
+
     @app.route("/uploads/items/<path:filename>")
     def uploaded_file(filename):
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
     @app.route("/")
+    @auth_required
     def index():
+
         sold_filter = request.args.get("sold", "")  # "", "Y", "N"
         platform = request.args.get("platform", "").strip()
         category = request.args.get("category", "").strip()
@@ -187,6 +258,7 @@ def create_app():
         )
 
     @app.route("/reports")
+    @auth_required
     def reports():
         range_key = (request.args.get("range") or "all").strip().lower()
         start_s = (request.args.get("start") or "").strip()
@@ -506,6 +578,7 @@ def create_app():
         )
 
     @app.route("/item/new", methods=["GET", "POST"])
+    @auth_required
     def item_new():
         if request.method == "POST":
             item = Item(
@@ -580,11 +653,13 @@ def create_app():
         )
 
     @app.route("/item/<int:sku>")
+    @auth_required
     def item_detail(sku: int):
         item = Item.query.get_or_404(sku)
         return render_template("item_detail.html", item=item)
 
     @app.route("/item/<int:sku>/edit", methods=["GET", "POST"])
+    @auth_required
     def item_edit(sku: int):
         item = Item.query.get_or_404(sku)
 
@@ -660,6 +735,7 @@ def create_app():
         )
 
     @app.route("/image/<int:image_id>/delete", methods=["POST"])
+    @auth_required
     def delete_image(image_id: int):
         img = ItemImage.query.get_or_404(image_id)
         sku = img.item_sku
@@ -677,6 +753,7 @@ def create_app():
         return redirect(url_for("item_detail", sku=sku))
 
     @app.route("/item/<int:sku>/delete", methods=["POST"])
+    @auth_required
     def item_delete(sku: int):
         item = Item.query.get_or_404(sku)
 
