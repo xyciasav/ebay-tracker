@@ -227,5 +227,93 @@
     })();
   </script>
   <script src="{{ url_for('static', filename='tools.js') }}"></script>
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
+  <script>
+  function $(id){ return document.getElementById(id); }
+
+  let codeReader = null;
+  let scanning = false;
+
+  function setStatus(msg, isError=false){
+    const el = $("barcodeStatus");
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isError ? "var(--danger, #c0392b)" : "var(--muted, #666)";
+  }
+
+  async function startBarcodeScan(){
+    if (scanning) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("Camera APIs not available in this browser.", true);
+      return;
+    }
+
+    $("barcodeScannerWrap").style.display = "block";
+    setStatus("Starting camera…");
+
+    try {
+      scanning = true;
+      codeReader = new ZXing.BrowserMultiFormatReader();
+
+      // Prefer rear camera
+      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      const rear = devices.find(d => /back|rear|environment/i.test(d.label));
+      const deviceId = (rear && rear.deviceId) ? rear.deviceId : (devices[0]?.deviceId || null);
+
+      if (!deviceId) {
+        setStatus("No camera found.", true);
+        stopBarcodeScan();
+        return;
+      }
+
+      setStatus("Point at barcode…");
+
+      // decodeFromVideoDevice renders into your <video>
+      codeReader.decodeFromVideoDevice(deviceId, "barcodeVideo", (result, err) => {
+        if (result) {
+          const text = result.getText();
+          $("barcode").value = text;
+
+          // If compsQuery is empty, auto-fill it too
+          const cq = $("compsQuery");
+          if (cq && !cq.value.trim()) cq.value = text;
+
+          setStatus("Scanned ✓ " + text);
+          stopBarcodeScan(); // auto-close after success
+        }
+      });
+
+    } catch (e) {
+      console.error(e);
+      setStatus("Camera failed to start. Check HTTPS + permissions.", true);
+      stopBarcodeScan();
+    }
+  }
+
+  function stopBarcodeScan(){
+    scanning = false;
+
+    try {
+      if (codeReader) {
+        codeReader.reset();
+        codeReader = null;
+      }
+    } catch (e) {}
+
+    $("barcodeScannerWrap").style.display = "none";
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = $("btnScanBarcode");
+    const close = $("btnCloseBarcode");
+
+    if (btn) btn.addEventListener("click", startBarcodeScan);
+    if (close) close.addEventListener("click", stopBarcodeScan);
+
+    // If you navigate away or submit, stop camera
+    window.addEventListener("beforeunload", stopBarcodeScan);
+  });
+</script>
 </body>
 </html>
