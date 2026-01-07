@@ -1,0 +1,4 @@
+https://palantir {
+  tls internal
+  reverse_proxy ebay-tracker:5055
+}

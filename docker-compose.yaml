@@ -4,12 +4,28 @@ services:
     container_name: ebay-tracker
     restart: unless-stopped
     environment:
-      # Put DB + uploads outside the repo so git updates never wipe your data
-      - SQLALCHEMY_DATABASE_URI=sqlite:////data/db/ebay_tracker.db
-      - UPLOAD_FOLDER=/data/uploads
-      - FLASK_SECRET_KEY=change-me-to-a-long-random-string
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-change-me}
+      - SQLALCHEMY_DATABASE_URI=${SQLALCHEMY_DATABASE_URI:-sqlite:///ebay_tracker.db}
+      - UPLOAD_FOLDER=/app/uploads/items
     volumes:
-      - /var/lib/ebay-tracker/db:/data/db
-      - /var/lib/ebay-tracker/uploads:/data/uploads
+      - ./data:/app/instance
+      - ./uploads:/app/uploads
+    expose:
+      - "5055"
+    command: ["gunicorn", "-b", "0.0.0.0:5055", "app:create_app()", "--workers", "2", "--threads", "4", "--timeout", "120"]
+
+  caddy:
+    image: caddy:2
+    container_name: ebay-tracker-caddy
+    restart: unless-stopped
     ports:
-      - "5055:5055"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
