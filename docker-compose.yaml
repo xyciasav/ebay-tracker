@@ -6,7 +6,7 @@ services:
     environment:
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-change-me}
       - SQLALCHEMY_DATABASE_URI=${SQLALCHEMY_DATABASE_URI:-sqlite:///ebay_tracker.db}
-      - UPLOAD_FOLDER=/app/uploads/items
+      - UPLOAD_FOLDER=/data/uploads/items
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads
