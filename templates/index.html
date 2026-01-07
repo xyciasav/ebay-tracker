@@ -86,6 +86,7 @@
         <td class="right">{{ "%.2f"|format(it.buyer_paid_amount or 0) }}</td>
         <td class="right">{{ "%.2f"|format(it.net_cost) }}</td>
         <td class="right"><strong>{{ "%.2f"|format(it.gross_profit) }}</strong></td>
+        <td>{{ item.source_location or '' }}</td>
         <td>{{ it.date_listed or "" }}</td>
         <td>{{ it.date_sold or "" }}</td>
         <td>

@@ -43,6 +43,12 @@
       </div>
     </div>
 
+ <div style="margin-top:10px;">
+  <label>Source Location</label>
+  <input type="text" name="source_location" value="{{ item.source_location or '' }}" />
+</div>
+   
+
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>COG</label><input name="cog" value="{{ item.cog or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Sale Price</label><input name="sale_price" value="{{ item.sale_price or '' }}"></div>

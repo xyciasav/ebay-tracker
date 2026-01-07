@@ -396,6 +396,7 @@ def create_app():
                 notes=request.form.get("notes", "").strip() or None,
                 cog=parse_float(request.form.get("cog")),
                 sale_price=parse_float(request.form.get("sale_price")),
+                source_location=request.form.get("source_location", "").strip() or None,
                 ad_fee=parse_float(request.form.get("ad_fee")),
                 ebay_fee=parse_float(request.form.get("ebay_fee")),
                 shipping=parse_float(request.form.get("shipping")),
@@ -472,6 +473,8 @@ def create_app():
             item.sub_category = request.form.get("sub_category", "").strip() or None
             item.platform = request.form.get("platform", "").strip() or None
             item.notes = request.form.get("notes", "").strip() or None
+            item.source_location = request.form.get("source_location", "").strip() or None
+
 
             item.cog = parse_float(request.form.get("cog"))
             item.sale_price = parse_float(request.form.get("sale_price"))

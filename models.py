@@ -16,6 +16,7 @@ class Item(db.Model):
     sub_category = db.Column(db.String(120), nullable=True)
     platform = db.Column(db.String(120), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    source_location = db.Column(db.String(120), nullable=True)
 
     cog = db.Column(db.Float, nullable=True)          # cost of goods
     sale_price = db.Column(db.Float, nullable=True)
