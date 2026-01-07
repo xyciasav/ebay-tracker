@@ -1,4 +1,4 @@
-https://palantir:8443 {
+:8443 {
   tls internal
   reverse_proxy ebay-tracker:5055
 }

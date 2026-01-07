@@ -22,13 +22,13 @@ services:
     container_name: ebay-tracker-caddy
     restart: unless-stopped
     ports:
-      - "8443:80"
-      - "443:443"
+      - "8443:8443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-
+    depends_on:
+      - ebay-tracker
 volumes:
   caddy_data:
   caddy_config:
