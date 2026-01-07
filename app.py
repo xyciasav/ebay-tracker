@@ -1,10 +1,12 @@
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from sqlalchemy import func, case
+
+from sqlalchemy import func, case, text
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
+
 from models import db, Item, ItemImage
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
@@ -40,7 +42,22 @@ def parse_date(value: str):
 
 
 def get_distinct_values(model, column):
-    rows = db.session.query(column).distinct().filter(column.isnot(None)).order_by(column).all()
+    """
+    Returns distinct non-empty values for a column.
+    Safe: if the column doesn't exist yet (DB not migrated), returns [] instead of crashing.
+    """
+    try:
+        rows = (
+            db.session.query(column)
+            .distinct()
+            .filter(column.isnot(None))
+            .order_by(column)
+            .all()
+        )
+    except Exception:
+        # Common case: sqlite schema not migrated yet (no such column)
+        return []
+
     values = []
     for r in rows:
         if not r or r[0] is None:
@@ -73,6 +90,33 @@ def process_image(path: str, max_size: int = 1600):
         print(f"Image processing failed for {path}: {e}")
 
 
+def ensure_sqlite_column(table_name: str, column_name: str, column_type_sql: str):
+    """
+    Tiny, pragmatic migration helper for SQLite:
+    - If we're on SQLite and column is missing, ALTER TABLE ADD COLUMN.
+    - Keeps your existing data intact.
+    """
+    try:
+        if db.engine.dialect.name != "sqlite":
+            return
+
+        # Does the table exist?
+        table_info = db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+        if not table_info:
+            return
+
+        existing_cols = {row[1] for row in table_info}  # row[1] is column name
+        if column_name in existing_cols:
+            return
+
+        db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
+        db.session.commit()
+        print(f"[migrate] Added column {table_name}.{column_name} ({column_type_sql})")
+    except Exception as e:
+        # Don't kill the app if migration fails; log it so you can see it in docker logs
+        print(f"[migrate] Failed to ensure column {table_name}.{column_name}: {e}")
+
+
 def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
@@ -80,7 +124,7 @@ def create_app():
     # DB URI can be overridden in Docker
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "SQLALCHEMY_DATABASE_URI",
-        "sqlite:///ebay_tracker.db"
+        "sqlite:///ebay_tracker.db",
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -96,6 +140,10 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+
+        # ✅ Ensure the new column exists in SQLite without nuking your DB.
+        # (This prevents: sqlite3.OperationalError: no such column: items.source_location)
+        ensure_sqlite_column("items", "source_location", "TEXT")
 
     @app.route("/uploads/items/<path:filename>")
     def uploaded_file(filename):
@@ -122,10 +170,11 @@ def create_app():
         if q:
             like = f"%{q}%"
             query = query.filter(
-                (Item.item_name.ilike(like)) |
-                (Item.notes.ilike(like)) |
-                (Item.sub_category.ilike(like)) |
-                (Item.category.ilike(like))
+                (Item.item_name.ilike(like))
+                | (Item.notes.ilike(like))
+                | (Item.sub_category.ilike(like))
+                | (Item.category.ilike(like))
+                | (Item.platform.ilike(like))
             )
 
         items = query.order_by(Item.sku.desc()).all()
@@ -139,7 +188,7 @@ def create_app():
             items=items,
             platforms=platforms,
             categories=categories,
-            source_locations=source_locations,  # ✅ NEW
+            source_locations=source_locations,
             sold_filter=sold_filter,
             platform_filter=platform,
             category_filter=category,
@@ -386,7 +435,6 @@ def create_app():
             end=end_date.isoformat() if end_date else "",
         )
 
-
     @app.route("/item/new", methods=["GET", "POST"])
     def item_new():
         if request.method == "POST":
@@ -396,9 +444,9 @@ def create_app():
                 sub_category=request.form.get("sub_category", "").strip() or None,
                 platform=request.form.get("platform", "").strip() or None,
                 notes=request.form.get("notes", "").strip() or None,
+                source_location=request.form.get("source_location", "").strip() or None,
                 cog=parse_float(request.form.get("cog")),
                 sale_price=parse_float(request.form.get("sale_price")),
-                source_location=request.form.get("source_location", "").strip() or None,
                 ad_fee=parse_float(request.form.get("ad_fee")),
                 ebay_fee=parse_float(request.form.get("ebay_fee")),
                 shipping=parse_float(request.form.get("shipping")),
@@ -420,7 +468,7 @@ def create_app():
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
-                    source_locations=source_locations,  # ✅ NEW
+                    source_locations=source_locations,
                 )
 
             db.session.add(item)
@@ -456,11 +504,14 @@ def create_app():
         categories = get_distinct_values(Item, Item.category)
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
+        source_locations = get_distinct_values(Item, Item.source_location)
+
         return render_template(
             "item_new.html",
             categories=categories,
             sub_categories=sub_categories,
             platforms=platforms,
+            source_locations=source_locations,  # ✅ IMPORTANT (fills datalist)
         )
 
     @app.route("/item/<int:sku>")
@@ -479,7 +530,6 @@ def create_app():
             item.platform = request.form.get("platform", "").strip() or None
             item.notes = request.form.get("notes", "").strip() or None
             item.source_location = request.form.get("source_location", "").strip() or None
-
 
             item.cog = parse_float(request.form.get("cog"))
             item.sale_price = parse_float(request.form.get("sale_price"))
@@ -505,7 +555,7 @@ def create_app():
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
-                    source_locations=source_locations,  # ✅ NEW
+                    source_locations=source_locations,
                 )
 
             # Add new photos if uploaded
@@ -537,12 +587,15 @@ def create_app():
         categories = get_distinct_values(Item, Item.category)
         sub_categories = get_distinct_values(Item, Item.sub_category)
         platforms = get_distinct_values(Item, Item.platform)
+        source_locations = get_distinct_values(Item, Item.source_location)
+
         return render_template(
             "item_edit.html",
             item=item,
             categories=categories,
             sub_categories=sub_categories,
             platforms=platforms,
+            source_locations=source_locations,  # ✅ IMPORTANT (fills datalist)
         )
 
     @app.route("/image/<int:image_id>/delete", methods=["POST"])
