@@ -96,7 +96,7 @@ def create_app():
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    default_uploads_dir = Path(app.root_path) / "uploads" / "items"
+    default_uploads_dir = Path("/data/uploads/items")
     upload_folder = os.environ.get("UPLOAD_FOLDER", str(default_uploads_dir))
     app.config["UPLOAD_FOLDER"] = upload_folder
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)

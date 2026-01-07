@@ -10,6 +10,7 @@ services:
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads
+      - ./data:/data
     expose:
       - "5055"
     command: ["gunicorn", "-b", "0.0.0.0:5055", "app:create_app()", "--workers", "2", "--threads", "4", "--timeout", "120"]
