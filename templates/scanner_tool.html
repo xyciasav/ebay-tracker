@@ -1,142 +1,191 @@
+{# templates/scanner_tool.html #}
 {% extends "base.html" %}
 {% block title %}Scanner Tool — eBay Tracker{% endblock %}
 
 {% block content %}
 <div class="card">
-  <h3 style="margin-top:0;">Scanner Tool</h3>
-  <div class="small" style="margin-bottom:10px;">
-    Scan a barcode, open eBay comps, and estimate max buy price — without clogging up the item form.
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+    <h3 style="margin:0;">Scanner / Comps Tool</h3>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a class="btn secondary" href="{{ url_for('item_new') }}">+ New Item</a>
+      <a class="btn secondary" href="{{ url_for('index') }}">Back to List</a>
+    </div>
   </div>
 
-  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
-    <div style="flex:1; min-width:220px;">
-      <label>Barcode (UPC/EAN)</label>
-      <input id="barcodeOut" type="text" placeholder="Scan or paste barcode" inputmode="numeric" autocomplete="off" />
+  <div class="small" style="margin-top:8px;">
+    Scan a barcode, open eBay sold comps, then click “Use This Barcode” to start a new item with it pre-filled.
+  </div>
+
+  <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
+
+  {# -------- BARCODE + SCANNER -------- #}
+  <div>
+    <label>Barcode (UPC/EAN)</label>
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+      <input
+        type="text"
+        id="barcode"
+        placeholder="Scan or type barcode"
+        style="min-width:220px;"
+        inputmode="numeric"
+        autocomplete="off"
+      />
+
+      <button type="button" class="btn secondary" id="btnScanBarcode">Scan Barcode</button>
+      <button type="button" class="btn secondary" id="btnCloseBarcode" style="display:none;">Close</button>
+
+      <button type="button" class="btn" id="btnUseBarcode" disabled>
+        Use This Barcode → New Item
+      </button>
+
+      <span class="small" id="barcodeStatus" style="min-width:220px;"></span>
     </div>
 
-    <button type="button" class="btn secondary" id="btnScan">Scan</button>
-    <button type="button" class="btn secondary" id="btnStop" style="display:none;">Stop</button>
+    <div id="barcodeScannerWrap" style="display:none; margin-top:10px;">
+      <div class="card" style="padding:10px; max-width:420px;">
+        <div class="small" style="margin-bottom:8px;">Point camera at barcode</div>
 
-    <a class="btn" id="btnUseBarcode" href="{{ url_for('item_new') }}" style="display:none;">
-      Use this barcode on New Item
-    </a>
+    <video
+      id="barcodeVideo"
+      playsinline
+      webkit-playsinline
+      muted
+      autoplay
+      style="display:block; width:100%; height:220px; object-fit:cover; border-radius:10px; background:#111;"
+    ></video>
 
-    <button type="button" class="btn secondary" id="btnCopy" style="display:none;">Copy</button>
 
-    <span class="small" id="status" style="min-width:220px;"></span>
-  </div>
+        <div class="small" id="scannerDebug" style="margin-top:8px;"></div>
+      </div>
+    </div>
 
-  <div id="wrap" style="display:none; margin-top:10px;">
-    <div class="card" style="padding:10px; max-width:420px;">
-      <div class="small" style="margin-bottom:8px;">Point camera at barcode</div>
-
-      <video
-        id="video"
-        playsinline
-        webkit-playsinline
-        muted
-        style="display:block; width:100%; height:220px; object-fit:cover; border-radius:10px; background:#111;"
-      ></video>
-
-      <div class="small" id="debug" style="margin-top:8px;"></div>
+    <div class="small" style="margin-top:6px;">
+      Tip: camera scanning needs HTTPS (secure context). If preview is weird, try Chrome for Android.
     </div>
   </div>
 
   <hr style="margin:18px 0; border:0; border-top:1px solid var(--border);" />
 
-  <h3 style="margin:0 0 10px 0;">Comps (Quick Check)</h3>
-
-  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end;">
-    <div>
-      <label>Search phrase (barcode or keywords)</label>
-      <input id="compsQuery" type="text" placeholder="UPC or keywords like: Klask board game" />
-      <div class="small" style="margin-top:6px;">Tip: keywords often work better than UPC for used items.</div>
+  {# -------- COMPS + CALCULATOR -------- #}
+  <div class="card" style="margin-top:12px;">
+    <h3 style="margin:0 0 10px 0;">Comps (Quick Check)</h3>
+    <div class="small" style="margin-bottom:10px;">
+      Use barcode or keywords, then open sold listings on eBay. Use the calculator to estimate max buy price.
     </div>
 
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <button type="button" class="btn" id="btnOpenSold">Open eBay Sold Comps</button>
-      <button type="button" class="btn secondary" id="btnOpenActive">Open eBay Active Listings</button>
-    </div>
-  </div>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end;">
+      <div>
+        <label>Search phrase (barcode or keywords)</label>
+        <input
+          id="compsQuery"
+          type="text"
+          placeholder="UPC/Barcode or keywords like: Klask board game"
+        />
+        <div class="small" style="margin-top:6px;">
+          Tip: keywords often work better than UPC for used items.
+        </div>
+      </div>
 
-  <hr style="margin:14px 0; border:0; border-top:1px solid var(--border2);" />
-
-  <h4 style="margin:0 0 10px 0;">Worth it? (Max Buy Price)</h4>
-
-  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
-    <div>
-      <label>Avg sold price (you eyeball)</label>
-      <input id="avgSoldPrice" type="number" step="0.01" placeholder="e.g. 34.99" />
-    </div>
-
-    <div>
-      <label>Shipping (preset)</label>
-      <select id="shipPreset">
-        <option value="6.50">Small (~$6.50)</option>
-        <option value="10.50" selected>Medium (~$10.50)</option>
-        <option value="18.00">Large (~$18.00)</option>
-        <option value="custom">Custom…</option>
-      </select>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn" id="btnOpenSold">Open eBay Sold Comps</button>
+        <button type="button" class="btn secondary" id="btnOpenActive">Open eBay Active Listings</button>
+      </div>
     </div>
 
-    <div>
-      <label>Shipping you pay</label>
-      <input id="shipYouPay" type="number" step="0.01" placeholder="e.g. 8.50" />
+    <hr style="margin:14px 0; border:0; border-top:1px solid var(--border2);" />
+
+    <h4 style="margin:0 0 10px 0;">Worth it? (Max Buy Price)</h4>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
+      <div>
+        <label>Avg sold price (you eyeball)</label>
+        <input id="avgSoldPrice" type="number" step="0.01" placeholder="e.g. 34.99" />
+      </div>
+
+      <div>
+        <label>Shipping (preset)</label>
+        <select id="shipPreset">
+          <option value="6.50">Small (~$6.50)</option>
+          <option value="10.50" selected>Medium (~$10.50)</option>
+          <option value="18.00">Large (~$18.00)</option>
+          <option value="custom">Custom…</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Shipping you pay</label>
+        <input id="shipYouPay" type="number" step="0.01" placeholder="e.g. 8.50" />
+      </div>
+
+      <div>
+        <label>eBay fee % (approx)</label>
+        <input id="ebayFeePct" type="number" step="0.01" value="13.25" />
+      </div>
+
+      <div>
+        <label>Ad fee % (if promoted)</label>
+        <input id="adFeePct" type="number" step="0.01" value="0" />
+      </div>
+
+      <div>
+        <label>Desired profit</label>
+        <input id="desiredProfit" type="number" step="0.01" value="15" />
+      </div>
+
+      <div>
+        <button type="button" class="btn" id="btnCalcMaxBuy">Calculate</button>
+      </div>
     </div>
 
-    <div>
-      <label>eBay fee % (approx)</label>
-      <input id="ebayFeePct" type="number" step="0.01" value="13.25" />
+    <div class="small" style="margin-top:10px;">
+      Uses: <code>max_buy = avg_sold - shipping_you_pay - (avg_sold * (ebay_fee% + ad_fee%)) - desired_profit</code>
     </div>
 
-    <div>
-      <label>Ad fee % (if promoted)</label>
-      <input id="adFeePct" type="number" step="0.01" value="0" />
-    </div>
+    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <div class="card" style="padding:10px 12px;">
+        <div class="small">Max Buy Price</div>
+        <div style="font-size:22px; font-weight:800;" id="maxBuyOut">$—</div>
+      </div>
 
-    <div>
-      <label>Desired profit</label>
-      <input id="desiredProfit" type="number" step="0.01" value="15" />
-    </div>
-
-    <div>
-      <button type="button" class="btn" id="btnCalc">Calculate</button>
-    </div>
-  </div>
-
-  <div class="small" style="margin-top:10px;">
-    Uses: <code>max_buy = avg_sold - shipping_you_pay - (avg_sold * (ebay_fee% + ad_fee%)) - desired_profit</code>
-  </div>
-
-  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-    <div class="card" style="padding:10px 12px;">
-      <div class="small">Max Buy Price</div>
-      <div style="font-size:22px; font-weight:800;" id="maxBuyOut">$—</div>
-    </div>
-
-    <div class="card" style="padding:10px 12px;">
-      <div class="small">Estimated Profit (if you pay Max)</div>
-      <div style="font-size:22px; font-weight:800;" id="profitOut">$—</div>
+      <div class="card" style="padding:10px 12px;">
+        <div class="small">Estimated Profit (if you pay Max)</div>
+        <div style="font-size:22px; font-weight:800;" id="profitOut">$—</div>
+      </div>
     </div>
   </div>
 </div>
 
+{# ZXing - keep this here so item pages stay light #}
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
+
 <script>
-  // ---------- helpers ----------
   function el(id){ return document.getElementById(id); }
-  function setStatus(msg, isErr=false) {
-    el("status").textContent = msg || "";
-    el("status").style.color = isErr ? "var(--danger, #b00020)" : "var(--muted, #6b7280)";
-  }
-  function debug(msg){ el("debug").textContent = msg || ""; }
+
   function toNum(v) {
     if (v === null || v === undefined) return 0;
     const s = String(v).trim().replace("$", "").replace(",", "");
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : 0;
   }
-  function money(n) { return Number.isFinite(n) ? ("$" + n.toFixed(2)) : "—"; }
+  function money(n) {
+    if (!Number.isFinite(n)) return "—";
+    return "$" + n.toFixed(2);
+  }
+
+  function setStatus(msg, isErr=false) {
+    const s = el("barcodeStatus");
+    if (!s) return;
+    s.textContent = msg || "";
+    s.style.color = isErr ? "var(--danger, #b00020)" : "var(--muted, #6b7280)";
+  }
+
+  function debug(msg) {
+    const d = el("scannerDebug");
+    if (!d) return;
+    d.textContent = msg || "";
+  }
+
   function ebaySoldUrl(q) {
     const s = encodeURIComponent(q.trim());
     return `https://www.ebay.com/sch/i.html?_nkw=${s}&LH_Sold=1&LH_Complete=1`;
@@ -146,91 +195,133 @@
     return `https://www.ebay.com/sch/i.html?_nkw=${s}`;
   }
 
-  // ---------- scanner ----------
-  let reader = null;
+  // --- scanner state ---
+  let zxingReader = null;
 
-  function showWrap(show){
-    el("wrap").style.display = show ? "block" : "none";
-    el("btnStop").style.display = show ? "inline-block" : "none";
+  function showScannerUI(show) {
+    el("barcodeScannerWrap").style.display = show ? "block" : "none";
+    el("btnCloseBarcode").style.display = show ? "inline-block" : "none";
   }
 
-  function applyBarcode(code){
-    el("barcodeOut").value = code;
-    if (!el("compsQuery").value.trim()) el("compsQuery").value = code;
-
-    el("btnCopy").style.display = "inline-block";
-    el("btnUseBarcode").style.display = "inline-block";
-    el("btnUseBarcode").href = `{{ url_for('item_new') }}?barcode=${encodeURIComponent(code)}`;
-
-    setStatus("Scanned: " + code);
-  }
-
-  async function stopScan(){
+  async function stopScanner() {
     try {
-      if (reader) reader.stopContinuousDecode && reader.stopContinuousDecode();
-    } catch(e){}
-    const v = el("video");
-    if (v && v.srcObject) {
-      try { v.srcObject.getTracks().forEach(t => t.stop()); } catch(e){}
-      v.srcObject = null;
+    if (zxingReader && zxingReader.reset) {
+      zxingReader.reset();
     }
-    showWrap(false);
-  }
+    } catch(e) {}
 
-  async function startScan(){
-    setStatus("");
+    const video = el("barcodeVideo");
+    if (video && video.srcObject) {
+      try {
+        const stream = video.srcObject;
+        stream.getTracks().forEach(t => t.stop());
+      } catch(e) {}
+      video.srcObject = null;
+    }
+
+    showScannerUI(false);
+    setStatus("Scanner closed.");
     debug("");
+  }
 
-    // show UI first
-    showWrap(true);
+  function enableUseButton() {
+    const code = (el("barcode").value || "").trim();
+    el("btnUseBarcode").disabled = !code;
+  }
 
-    if (!window.isSecureContext) {
-      setStatus("Camera requires HTTPS (secure context).", true);
-      debug(`isSecureContext=${window.isSecureContext} url=${location.href}`);
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("Camera API not available.", true);
-      return;
-    }
-    if (!window.ZXingBrowser) {
-      setStatus("Scanner library failed to load (ZXing).", true);
-      return;
-    }
+async function startScanner() {
+  showScannerUI(true);
+  el("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-    // hard stop any existing stream
-    await stopScan();
+  debug("");
+  setStatus("");
 
-    try {
-      if (!reader) reader = new ZXingBrowser.BrowserMultiFormatReader();
+  if (!window.isSecureContext) {
+    setStatus("Camera requires HTTPS (secure context).", true);
+    debug(`isSecureContext=${window.isSecureContext}  url=${location.href}`);
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus("Camera API not available in this browser.", true);
+    debug("navigator.mediaDevices.getUserMedia missing");
+    return;
+  }
+  if (!window.ZXingBrowser) {
+    setStatus("Scanner library failed to load (ZXing).", true);
+    debug("ZXingBrowser missing (blocked by CSP / network?)");
+    return;
+  }
 
-      setStatus("Starting camera…");
+  const videoEl = el("barcodeVideo");
+  // Ensure autoplay-ish behavior on mobile
+  videoEl.setAttribute("autoplay", "");
+  videoEl.setAttribute("muted", "");
+  videoEl.setAttribute("playsinline", "");
+  videoEl.muted = true;
 
-      const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-      const preferred = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
-      const deviceId = preferred ? preferred.deviceId : undefined;
+  setStatus("Requesting camera permission…");
 
-      debug(`devices=${devices.length} using=${preferred ? (preferred.label || preferred.deviceId) : "default"}`);
+  // 1) Warm up permission (forces prompt + unlocks camera on iOS/Chrome quirks)
+  let warmStream = null;
+  try {
+    warmStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+  } catch (err) {
+    const msg = err?.name ? `${err.name}: ${err.message || ""}` : String(err);
+    setStatus("Camera permission denied/blocked: " + msg, true);
+    debug(msg);
+    return;
+  } finally {
+    if (warmStream) warmStream.getTracks().forEach(t => t.stop());
+  }
 
-      await reader.decodeFromVideoDevice(deviceId, el("video"), (result, err) => {
+  // 2) Start ZXing after permission is granted
+  if (!zxingReader) zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
+
+  setStatus("Starting camera…");
+
+  try {
+    const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+    const preferred = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
+    const deviceId = preferred ? preferred.deviceId : undefined;
+
+    debug(`devices=${devices.length} using=${preferred ? (preferred.label || preferred.deviceId) : "default"}`);
+
+    await zxingReader.decodeFromVideoDevice(
+      deviceId,
+      videoEl,
+      (result, err) => {
         if (result) {
           const code = result.getText ? result.getText() : String(result.text || result);
-          applyBarcode(code);
-          stopScan();
+          el("barcode").value = code;
+
+          if (!el("compsQuery").value.trim()) el("compsQuery").value = code;
+          setStatus("Scanned: " + code);
+
+          enableUseButton();
+          stopScanner();
+        } else if (err) {
+          const name = err.name || "";
+          if (name && name !== "NotFoundException") debug(`scan err: ${name}`);
         }
-      });
+      }
+    );
 
-      setStatus("Camera ready. Point at barcode…");
-    } catch (err) {
-      const msg = (err && err.name) ? `${err.name}: ${err.message || ""}` : String(err);
-      setStatus("Camera failed: " + msg, true);
-      debug(msg);
-      await stopScan();
-    }
+    setStatus("Camera ready. Point at barcode…");
+  } catch (err) {
+    const msg = err?.name ? `${err.name}: ${err.message || ""}` : String(err);
+    setStatus("Camera failed to start: " + msg, true);
+    debug(msg);
+    await stopScanner();
   }
+}
 
-  // ---------- calculator ----------
+
+  // --- defaults for calculator ---
   const LS_KEY = "ebayTrackerCompsDefaults";
+
   function loadDefaults() {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -244,6 +335,7 @@
       }
     } catch (e) {}
   }
+
   function saveDefaults() {
     const d = {
       ebayFeePct: toNum(el("ebayFeePct").value),
@@ -254,55 +346,48 @@
     try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {}
   }
 
+  function syncCompsQueryDefault() {
+    const cq = el("compsQuery");
+    if (!cq.value.trim()) {
+      const b = (el("barcode").value || "").trim();
+      if (b) cq.value = b;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     loadDefaults();
 
-    el("btnScan").addEventListener("click", startScan);
-    el("btnStop").addEventListener("click", stopScan);
+    el("barcode").addEventListener("input", () => {
+      syncCompsQueryDefault();
+      enableUseButton();
+    });
 
-    el("btnCopy").addEventListener("click", async () => {
-      const code = el("barcodeOut").value.trim();
+    el("btnUseBarcode").addEventListener("click", () => {
+      const code = (el("barcode").value || "").trim();
       if (!code) return;
-      try {
-        await navigator.clipboard.writeText(code);
-        setStatus("Copied to clipboard.");
-      } catch (e) {
-        setStatus("Copy failed (browser blocked clipboard).", true);
-      }
+      window.location.href = `{{ url_for('item_new') }}?barcode=${encodeURIComponent(code)}`;
     });
 
-    el("barcodeOut").addEventListener("input", () => {
-      const code = el("barcodeOut").value.trim();
-      if (!el("compsQuery").value.trim() && code) el("compsQuery").value = code;
-      if (code) {
-        el("btnCopy").style.display = "inline-block";
-        el("btnUseBarcode").style.display = "inline-block";
-        el("btnUseBarcode").href = `{{ url_for('item_new') }}?barcode=${encodeURIComponent(code)}`;
-      } else {
-        el("btnCopy").style.display = "none";
-        el("btnUseBarcode").style.display = "none";
-      }
+    el("shipPreset")?.addEventListener("change", () => {
+      const v = el("shipPreset").value;
+      if (v !== "custom") el("shipYouPay").value = v;
     });
 
-    el("btnOpenSold").addEventListener("click", () => {
+    el("btnOpenSold")?.addEventListener("click", () => {
+      syncCompsQueryDefault();
       const q = el("compsQuery").value.trim();
       if (!q) { alert("Enter a barcode or keywords first."); return; }
       window.open(ebaySoldUrl(q), "_blank", "noopener,noreferrer");
     });
 
-    el("btnOpenActive").addEventListener("click", () => {
+    el("btnOpenActive")?.addEventListener("click", () => {
+      syncCompsQueryDefault();
       const q = el("compsQuery").value.trim();
       if (!q) { alert("Enter a barcode or keywords first."); return; }
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
     });
 
-    el("shipPreset").addEventListener("change", () => {
-      const v = el("shipPreset").value;
-      if (v === "custom") return;
-      el("shipYouPay").value = v;
-    });
-
-    el("btnCalc").addEventListener("click", () => {
+    el("btnCalcMaxBuy")?.addEventListener("click", () => {
       const avgSold = toNum(el("avgSoldPrice").value);
       const shipPay = toNum(el("shipYouPay").value);
       const ebayPct = toNum(el("ebayFeePct").value) / 100.0;
@@ -320,6 +405,11 @@
       el("maxBuyOut").textContent = money(maxBuy);
       el("profitOut").textContent = money(estProfit);
     });
+
+    el("btnScanBarcode")?.addEventListener("click", startScanner);
+    el("btnCloseBarcode")?.addEventListener("click", stopScanner);
+
+    enableUseButton();
   });
 </script>
 {% endblock %}
