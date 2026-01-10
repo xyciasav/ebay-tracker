@@ -168,20 +168,6 @@ def create_app():
     # HTTP Basic Auth (browser popup)
     basic_auth = HTTPBasicAuth()
 
-    @app.get("/item/new")
-    def item_new():
-        # ... your existing data loads: categories/platforms/etc.
-        prefill_barcode = request.args.get("barcode", "").strip()
-        return render_template(
-            "item_new.html",
-            item=None,
-            platforms=platforms,
-            categories=categories,
-            sub_categories=sub_categories,
-            source_locations=source_locations,
-            prefill_barcode=prefill_barcode,
-        )
-
     @basic_auth.verify_password
     def verify_password(username, password):
         if AUTH_MODE != "basic":
