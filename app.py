@@ -142,6 +142,42 @@ def create_app():
                 "ship_large": app.config["EST_SHIP_LARGE"],
             }
         )
+    
+    
+    # -----------------------------
+    # Auth config
+    # -----------------------------
+    AUTH_MODE = (os.environ.get("AUTH_MODE", "off") or "off").lower()
+
+    basic_auth = HTTPBasicAuth()
+
+    @basic_auth.verify_password
+    def verify_password(username, password):
+        if AUTH_MODE != "basic":
+            return False
+        if not BASIC_USER or not BASIC_PASS_HASH:
+            return False
+        if username == BASIC_USER and check_password_hash(BASIC_PASS_HASH, password or ""):
+            return True
+        return False
+
+    def auth_required(view_func):
+        @wraps(view_func)
+        def wrapper(*args, **kwargs):
+            if AUTH_MODE == "off":
+                return view_func(*args, **kwargs)
+
+            if AUTH_MODE == "basic":
+                return basic_auth.login_required(view_func)(*args, **kwargs)
+
+            if AUTH_MODE == "oidc":
+                if not current_user.is_authenticated:
+                    return redirect(url_for("login", next=request.path))
+                return view_func(*args, **kwargs)
+
+            return ("Auth misconfigured", 500)
+        return wrapper
+
     @app.get("/export/items.csv")
     @auth_required
     def export_items_csv():
@@ -212,69 +248,6 @@ def create_app():
                 "Content-Disposition": "attachment; filename=ebay-tracker-items.csv"
             },
         )
-    # -----------------------------
-    # Auth config
-    # -----------------------------
-    AUTH_MODE = (os.environ.get("AUTH_MODE", "off") or "off").lower()
-
-    # Flask-Login setup
-    login_manager = LoginManager()
-    login_manager.login_view = "login"
-    login_manager.init_app(app)
-
-    # Simple in-memory user for now (basic auth / simple form login)
-    BASIC_USER = os.environ.get("BASIC_AUTH_USER", "")
-    BASIC_PASS = os.environ.get("BASIC_AUTH_PASS", "")
-    BASIC_PASS_HASH = generate_password_hash(BASIC_PASS) if BASIC_PASS else ""
-
-    class SimpleUser(UserMixin):
-        def __init__(self, user_id: str):
-            self.id = user_id
-
-    @login_manager.user_loader
-    def load_user(user_id: str):
-        if BASIC_USER and user_id == BASIC_USER:
-            return SimpleUser(user_id)
-        return None
-
-    # HTTP Basic Auth (browser popup)
-    basic_auth = HTTPBasicAuth()
-
-    @basic_auth.verify_password
-    def verify_password(username, password):
-        if AUTH_MODE != "basic":
-            return False
-        if not BASIC_USER or not BASIC_PASS_HASH:
-            return False
-        if username == BASIC_USER and check_password_hash(BASIC_PASS_HASH, password or ""):
-            return True
-        return False
-
-    def auth_required(view_func):
-        """
-        Single decorator that enforces auth based on AUTH_MODE.
-        - off: no auth
-        - basic: HTTP Basic (works everywhere, incl. Cloudflare)
-        - oidc: (we'll add below) requires Flask-Login session
-        """
-        @wraps(view_func)
-        def wrapper(*args, **kwargs):
-            if AUTH_MODE == "off":
-                return view_func(*args, **kwargs)
-
-            if AUTH_MODE == "basic":
-                return basic_auth.login_required(view_func)(*args, **kwargs)
-
-            if AUTH_MODE == "oidc":
-                # Keycloak mode uses session login
-                if not current_user.is_authenticated:
-                    return redirect(url_for("login", next=request.path))
-                return view_func(*args, **kwargs)
-
-            # default safe
-            return ("Auth misconfigured", 500)
-
-        return wrapper
 
     @app.get("/tools/scanner")
     @auth_required
