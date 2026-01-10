@@ -605,6 +605,7 @@ def create_app():
                 date_listed=parse_date(request.form.get("date_listed")),
                 date_sold=parse_date(request.form.get("date_sold")),
                 sold=(request.form.get("sold") == "Y"),
+                prefill_barcode = request.args.get("barcode", "").strip()
             )
 
             if not item.item_name:
@@ -613,12 +614,14 @@ def create_app():
                 sub_categories = get_distinct_values(Item, Item.sub_category)
                 platforms = get_distinct_values(Item, Item.platform)
                 source_locations = get_distinct_values(Item, Item.source_location)
+
                 return render_template(
                     "item_new.html",
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
                     source_locations=source_locations,
+                    prefill_barcode=prefill_barcode,
                 )
 
             db.session.add(item)
