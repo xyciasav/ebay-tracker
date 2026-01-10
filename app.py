@@ -149,6 +149,10 @@ def create_app():
     # -----------------------------
     AUTH_MODE = (os.environ.get("AUTH_MODE", "off") or "off").lower()
 
+    BASIC_USER = os.environ.get("BASIC_AUTH_USER", "")
+    BASIC_PASS = os.environ.get("BASIC_AUTH_PASS", "")
+    BASIC_PASS_HASH = generate_password_hash(BASIC_PASS) if BASIC_PASS else ""
+
     basic_auth = HTTPBasicAuth()
 
     @basic_auth.verify_password
@@ -157,9 +161,7 @@ def create_app():
             return False
         if not BASIC_USER or not BASIC_PASS_HASH:
             return False
-        if username == BASIC_USER and check_password_hash(BASIC_PASS_HASH, password or ""):
-            return True
-        return False
+        return username == BASIC_USER and check_password_hash(BASIC_PASS_HASH, password or "")
 
     def auth_required(view_func):
         @wraps(view_func)
@@ -176,6 +178,7 @@ def create_app():
                 return view_func(*args, **kwargs)
 
             return ("Auth misconfigured", 500)
+
         return wrapper
 
     @app.get("/export/items.csv")
