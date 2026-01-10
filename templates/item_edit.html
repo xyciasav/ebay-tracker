@@ -3,6 +3,9 @@
 {% block title %}Edit SKU {{ item.sku }} — eBay Tracker{% endblock %}
 
 {% block content %}
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 0 0;">
+  <a class="btn secondary" href="{{ url_for('scanner_tool') }}">Scanner / Comps Tool</a>
+</div>
 <div class="card">
   <h3 style="margin-top:0;">Edit SKU #{{ item.sku }}</h3>
   <form method="post" enctype="multipart/form-data">
