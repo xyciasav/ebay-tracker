@@ -653,7 +653,6 @@ def create_app():
                 date_listed=parse_date(request.form.get("date_listed")),
                 date_sold=parse_date(request.form.get("date_sold")),
                 sold=(request.form.get("sold") == "Y"),
-                prefill_barcode = request.args.get("barcode", "").strip()
             )
 
             if not item.item_name:
