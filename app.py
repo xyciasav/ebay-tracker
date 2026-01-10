@@ -9,7 +9,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_httpauth import HTTPBasicAuth
 from functools import wraps
-from flask import request
+from flask import request, Response
+import csv
+import io
+
 
 
 from models import db, Item, ItemImage
@@ -779,8 +782,80 @@ def create_app():
         db.session.commit()
         flash(f"Deleted SKU #{sku}.", "success")
         return redirect(url_for("index"))
+    
 
     return app
+
+    @app.get("/export/items.csv")
+    @auth_required
+    def export_items_csv():
+        # Pull all items (you can add filters later)
+        items = Item.query.order_by(Item.sku.asc()).all()
+
+        # Build CSV in-memory
+        output = io.StringIO()
+        w = csv.writer(output)
+
+        # Header row
+        w.writerow([
+            "sku",
+            "item_name",
+            "category",
+            "sub_category",
+            "platform",
+            "barcode",
+            "source_location",
+            "cog",
+            "sale_price",
+            "buyer_paid_amount",
+            "shipping",
+            "ad_fee",
+            "ebay_fee",
+            "sold",
+            "date_listed",
+            "date_sold",
+            "notes",
+            "image_filenames",
+        ])
+
+        for it in items:
+            # If you want all image filenames in one column
+            try:
+                image_names = ";".join([img.filename for img in (it.images or [])])
+            except Exception:
+                image_names = ""
+
+            w.writerow([
+                it.sku,
+                it.item_name or "",
+                it.category or "",
+                it.sub_category or "",
+                it.platform or "",
+                it.barcode or "",
+                it.source_location or "",
+                it.cog if it.cog is not None else "",
+                it.sale_price if it.sale_price is not None else "",
+                it.buyer_paid_amount if it.buyer_paid_amount is not None else "",
+                it.shipping if it.shipping is not None else "",
+                it.ad_fee if it.ad_fee is not None else "",
+                it.ebay_fee if it.ebay_fee is not None else "",
+                "Y" if getattr(it, "sold", False) else "N",
+                it.date_listed.isoformat() if it.date_listed else "",
+                it.date_sold.isoformat() if it.date_sold else "",
+                (it.notes or "").replace("\r", " ").replace("\n", " ").strip(),
+                image_names,
+            ])
+
+        csv_data = output.getvalue()
+        output.close()
+
+        return Response(
+            csv_data,
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": "attachment; filename=ebay-tracker-items.csv"
+            },
+        )
 
 
 if __name__ == "__main__":

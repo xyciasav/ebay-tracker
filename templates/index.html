@@ -2,6 +2,12 @@
 {% block title %}Inventory — eBay Tracker{% endblock %}
 
 {% block content %}
+<div style="display:flex; gap:10px; flex-wrap:wrap;">
+  <a class="btn secondary" href="{{ url_for('item_new') }}">+ New Item</a>
+  <a class="btn secondary" href="{{ url_for('scanner_tool') }}">Scanner / Comps Tool</a>
+  <a class="btn secondary" href="{{ url_for('export_items_csv') }}">Download CSV</a>
+</div>
+
 <div class="card">
   <form method="get" class="row" style="align-items:end;">
     <div>
