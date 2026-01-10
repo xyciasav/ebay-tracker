@@ -220,7 +220,7 @@
     }
 
     showScannerUI(false);
-    setStatus("Scanner closed.");
+    setStatus("");
     debug("");
   }
 
@@ -229,94 +229,84 @@
     el("btnUseBarcode").disabled = !code;
   }
 
-async function startScanner() {
-  showScannerUI(true);
-  el("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  async function startScanner() {
+    showScannerUI(true);
+    el("barcodeScannerWrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-  debug("");
-  setStatus("");
+    debug("");
+    setStatus("");
 
-  if (!window.isSecureContext) {
-    setStatus("Camera requires HTTPS (secure context).", true);
-    debug(`isSecureContext=${window.isSecureContext}  url=${location.href}`);
-    return;
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus("Camera API not available in this browser.", true);
-    debug("navigator.mediaDevices.getUserMedia missing");
-    return;
-  }
-  if (!window.ZXingBrowser) {
-    setStatus("Scanner library failed to load (ZXing).", true);
-    debug("ZXingBrowser missing (blocked by CSP / network?)");
-    return;
-  }
-
-  const videoEl = el("barcodeVideo");
-  // Ensure autoplay-ish behavior on mobile
-  videoEl.setAttribute("autoplay", "");
-  videoEl.setAttribute("muted", "");
-  videoEl.setAttribute("playsinline", "");
-  videoEl.muted = true;
-
-  setStatus("Requesting camera permission…");
-
-  // 2) Start ZXing after permission is granted
-  if (!zxingReader) zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
-
-  setStatus("Starting camera…");
-
-  try {
-    const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-    const preferred = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
-    const deviceId = preferred ? preferred.deviceId : undefined;
-
-    debug(`devices=${devices.length} using=${preferred ? (preferred.label || preferred.deviceId) : "default"}`);
-
-    await zxingReader.decodeFromVideoDevice(
-      deviceId,
-      videoEl,
-      (result, err) => {
-        if (result) {
-          const code = result.getText ? result.getText() : String(result.text || result);
-          el("barcode").value = code;
-
-          if (!el("compsQuery").value.trim()) el("compsQuery").value = code;
-          setStatus("Scanned: " + code);
-
-          enableUseButton();
-          stopScanner();
-        } else if (err) {
-          const name = err.name || "";
-          if (name && name !== "NotFoundException") debug(`scan err: ${name}`);
-        }
-      }
-    );
-
-    // ADD THIS
-    try {
-      const v = el("barcodeVideo");
-      await v.play();
-    } catch (e) {
-      // ignore; some browsers block play until stream is live
+    if (!window.isSecureContext) {
+      setStatus("Camera requires HTTPS (secure context).", true);
+      debug(`isSecureContext=${window.isSecureContext} url=${location.href}`);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Camera API not available in this browser.", true);
+      debug("navigator.mediaDevices.getUserMedia missing");
+      return;
+    }
+    if (!window.ZXingBrowser) {
+      setStatus("Scanner library failed to load (ZXing).", true);
+      debug("ZXingBrowser missing (blocked by CSP / network?)");
+      return;
     }
 
+    const videoEl = el("barcodeVideo");
+    videoEl.muted = true;
+    videoEl.setAttribute("muted", "");
+    videoEl.setAttribute("playsinline", "");
+    videoEl.setAttribute("webkit-playsinline", "");
+    videoEl.setAttribute("autoplay", "");
+
+    if (!zxingReader) zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
+
+    setStatus("Starting camera…");
+
     try {
-  const v = el("barcodeVideo");
-  await v.play();
-} catch (e) {
-  // ignore; some browsers block play until stream is live
-}
+      // Force rear camera via constraints (works better on Brave/Android)
+      const constraints = {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
 
-    setStatus("Camera ready. Point at barcode…");
-  } catch (err) {
-    const msg = err?.name ? `${err.name}: ${err.message || ""}` : String(err);
-    setStatus("Camera failed to start: " + msg, true);
-    debug(msg);
-    await stopScanner();
+      await zxingReader.decodeFromConstraints(
+        constraints,
+        videoEl,
+        (result, err) => {
+          if (result) {
+            const code = result.getText ? result.getText() : String(result.text || result);
+            el("barcode").value = code;
+
+            if (!el("compsQuery").value.trim()) el("compsQuery").value = code;
+            setStatus("Scanned: " + code);
+
+            enableUseButton();
+            stopScanner(); // hides preview + stops camera
+          } else if (err) {
+            const name = err.name || "";
+            if (name && name !== "NotFoundException") debug(`scan err: ${name}`);
+          }
+        }
+      );
+
+      // Kick video rendering on mobile (Brave/Android often needs this)
+      setTimeout(() => {
+        videoEl.play?.().catch(() => {});
+      }, 200);
+
+      setStatus("Camera ready. Point at barcode…");
+    } catch (err) {
+      const msg = err?.name ? `${err.name}: ${err.message || ""}` : String(err);
+      setStatus("Camera failed to start: " + msg, true);
+      debug(msg);
+      await stopScanner();
+    }
   }
-}
-
 
   // --- defaults for calculator ---
   const LS_KEY = "ebayTrackerCompsDefaults";
