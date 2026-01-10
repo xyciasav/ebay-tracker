@@ -261,22 +261,6 @@ async function startScanner() {
 
   setStatus("Requesting camera permission…");
 
-  // 1) Warm up permission (forces prompt + unlocks camera on iOS/Chrome quirks)
-  let warmStream = null;
-  try {
-    warmStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    });
-  } catch (err) {
-    const msg = err?.name ? `${err.name}: ${err.message || ""}` : String(err);
-    setStatus("Camera permission denied/blocked: " + msg, true);
-    debug(msg);
-    return;
-  } finally {
-    if (warmStream) warmStream.getTracks().forEach(t => t.stop());
-  }
-
   // 2) Start ZXing after permission is granted
   if (!zxingReader) zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
 
@@ -308,6 +292,21 @@ async function startScanner() {
         }
       }
     );
+
+    // ADD THIS
+    try {
+      const v = el("barcodeVideo");
+      await v.play();
+    } catch (e) {
+      // ignore; some browsers block play until stream is live
+    }
+
+    try {
+  const v = el("barcodeVideo");
+  await v.play();
+} catch (e) {
+  // ignore; some browsers block play until stream is live
+}
 
     setStatus("Camera ready. Point at barcode…");
   } catch (err) {
