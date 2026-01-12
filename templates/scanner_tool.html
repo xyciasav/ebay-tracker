@@ -95,66 +95,70 @@
 
     <hr style="margin:14px 0; border:0; border-top:1px solid var(--border2);" />
 
-    <h4 style="margin:0 0 10px 0;">Worth it? (Max Buy Price)</h4>
+    <h4 style="margin:0 0 10px 0;">Deal Estimator (Profit from your COG)</h4>
 
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
-      <div>
-        <label>Avg sold price (you eyeball)</label>
-        <input id="avgSoldPrice" type="number" step="0.01" placeholder="e.g. 34.99" />
-      </div>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
+  <div>
+    <label>Avg sold price (you eyeball)</label>
+    <input id="avgSoldPrice" type="number" step="0.01" placeholder="e.g. 34.99" />
+  </div>
 
-      <div>
-        <label>Shipping (preset)</label>
-        <select id="shipPreset">
-          <option value="6.50">Small (~$6.50)</option>
-          <option value="10.50" selected>Medium (~$10.50)</option>
-          <option value="18.00">Large (~$18.00)</option>
-          <option value="custom">Custom…</option>
-        </select>
-      </div>
+  <div>
+    <label>Your cost (COG)</label>
+    <input id="cogInput" type="number" step="0.01" placeholder="e.g. 4.99" />
+  </div>
 
-      <div>
-        <label>Shipping you pay</label>
-        <input id="shipYouPay" type="number" step="0.01" placeholder="e.g. 8.50" />
-      </div>
+  <div>
+    <label>Shipping (preset)</label>
+    <select id="shipPreset">
+      <option value="6.50">Small (~$6.50)</option>
+      <option value="10.50" selected>Medium (~$10.50)</option>
+      <option value="18.00">Large (~$18.00)</option>
+      <option value="custom">Custom…</option>
+    </select>
+  </div>
 
-      <div>
-        <label>eBay fee % (approx)</label>
-        <input id="ebayFeePct" type="number" step="0.01" value="13.25" />
-      </div>
+  <div>
+    <label>Shipping you pay</label>
+    <input id="shipYouPay" type="number" step="0.01" placeholder="e.g. 8.50" />
+  </div>
 
-      <div>
-        <label>Ad fee % (if promoted)</label>
-        <input id="adFeePct" type="number" step="0.01" value="0" />
-      </div>
+  <div>
+    <label>eBay fee % (approx)</label>
+    <input id="ebayFeePct" type="number" step="0.01" value="13.25" />
+  </div>
 
-      <div>
-        <label>Desired profit</label>
-        <input id="desiredProfit" type="number" step="0.01" value="15" />
-      </div>
+  <div>
+    <label>Ad fee % (if promoted)</label>
+    <input id="adFeePct" type="number" step="0.01" value="0" />
+  </div>
 
-      <div>
-        <button type="button" class="btn" id="btnCalcMaxBuy">Calculate</button>
-      </div>
-    </div>
-
-    <div class="small" style="margin-top:10px;">
-      Uses: <code>max_buy = avg_sold - shipping_you_pay - (avg_sold * (ebay_fee% + ad_fee%)) - desired_profit</code>
-    </div>
-
-    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <div class="card" style="padding:10px 12px;">
-        <div class="small">Max Buy Price</div>
-        <div style="font-size:22px; font-weight:800;" id="maxBuyOut">$—</div>
-      </div>
-
-      <div class="card" style="padding:10px 12px;">
-        <div class="small">Estimated Profit (if you pay Max)</div>
-        <div style="font-size:22px; font-weight:800;" id="profitOut">$—</div>
-      </div>
-    </div>
+  <div>
+    <button type="button" class="btn" id="btnCalcDeal">Calculate</button>
   </div>
 </div>
+
+<div class="small" style="margin-top:10px;">
+  Uses: <code>profit = avg_sold - fees - shipping - cog</code>
+</div>
+
+<div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+  <div class="card" style="padding:10px 12px;">
+    <div class="small">Estimated Profit</div>
+    <div style="font-size:22px; font-weight:800;" id="profitOut">$—</div>
+  </div>
+
+  <div class="card" style="padding:10px 12px;">
+    <div class="small">Profit Margin</div>
+    <div style="font-size:22px; font-weight:800;" id="marginOut">—%</div>
+  </div>
+
+  <div class="card" style="padding:10px 12px;">
+    <div class="small">Break-even Max COG</div>
+    <div style="font-size:22px; font-weight:800;" id="maxCogOut">$—</div>
+  </div>
+</div>
+</div>  {# closes comps card #}
 
 {# ZXing - keep this here so item pages stay light #}
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
@@ -319,8 +323,8 @@
       if (d && typeof d === "object") {
         if (d.ebayFeePct != null) el("ebayFeePct").value = d.ebayFeePct;
         if (d.adFeePct != null) el("adFeePct").value = d.adFeePct;
-        if (d.desiredProfit != null) el("desiredProfit").value = d.desiredProfit;
         if (d.shipYouPay != null) el("shipYouPay").value = d.shipYouPay;
+        if (d.cogInput != null) el("cogInput").value = d.cogInput;
       }
     } catch (e) {}
   }
@@ -329,11 +333,12 @@
     const d = {
       ebayFeePct: toNum(el("ebayFeePct").value),
       adFeePct: toNum(el("adFeePct").value),
-      desiredProfit: toNum(el("desiredProfit").value),
       shipYouPay: toNum(el("shipYouPay").value),
+      cogInput: toNum(el("cogInput").value),
     };
     try { localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) {}
   }
+
 
   function syncCompsQueryDefault() {
     const cq = el("compsQuery");
@@ -376,23 +381,25 @@
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
     });
 
-    el("btnCalcMaxBuy")?.addEventListener("click", () => {
+    el("btnCalcDeal")?.addEventListener("click", () => {
       const avgSold = toNum(el("avgSoldPrice").value);
+      const cog = toNum(el("cogInput").value);
       const shipPay = toNum(el("shipYouPay").value);
       const ebayPct = toNum(el("ebayFeePct").value) / 100.0;
       const adPct = toNum(el("adFeePct").value) / 100.0;
-      const desired = toNum(el("desiredProfit").value);
 
       saveDefaults();
 
       if (avgSold <= 0) { alert("Enter an Avg sold price first."); return; }
 
       const feeTotal = avgSold * (ebayPct + adPct);
-      const maxBuy = avgSold - shipPay - feeTotal - desired;
-      const estProfit = avgSold - (maxBuy + shipPay + feeTotal);
+      const profit = avgSold - feeTotal - shipPay - cog;
+      const margin = avgSold > 0 ? (profit / avgSold) * 100 : 0;
+      const maxCog = avgSold - feeTotal - shipPay;
 
-      el("maxBuyOut").textContent = money(maxBuy);
-      el("profitOut").textContent = money(estProfit);
+      el("profitOut").textContent = money(profit);
+      el("marginOut").textContent = Number.isFinite(margin) ? margin.toFixed(1) + "%" : "—%";
+      el("maxCogOut").textContent = money(maxCog);
     });
 
     el("btnScanBarcode")?.addEventListener("click", startScanner);
@@ -401,4 +408,9 @@
     enableUseButton();
   });
 </script>
+
+  </div>   {# closes comps card #}
+</div>     {# closes outer page card #}
+
 {% endblock %}
+
