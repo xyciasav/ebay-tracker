@@ -2,16 +2,16 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from sqlalchemy import func, case, text
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory,Response,render_template, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_httpauth import HTTPBasicAuth
 from functools import wraps
-from flask import request, Response
 import csv
 import io
+import difflib import SequenceMatcher
 
 
 
@@ -87,6 +87,31 @@ def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
         return column_name in cols
     except Exception:
         return False
+
+def _norm_title(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _similar(a: str, b: str) -> float:
+    # cheap fuzzy similarity
+    return SequenceMatcher(None, a, b).ratio()
+
+def _parse_ebay_start_date(s: str) -> str:
+    """
+    eBay export example: 'Aug-28-25 12:01:09 PDT'
+    We’ll store as MM-DD-YYYY (your app preference).
+    """
+    if not s:
+        return ""
+    # remove trailing timezone token like "PDT"
+    parts = s.strip().split()
+    if len(parts) >= 3 and parts[-1].isalpha() and len(parts[-1]) in (3, 4):
+        s = " ".join(parts[:-1])
+    # parse
+    dt = datetime.strptime(s, "%b-%d-%y %H:%M:%S")
+    return dt.strftime("%m-%d-%Y")
 
 
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
@@ -251,6 +276,7 @@ def create_app():
                 "Content-Disposition": "attachment; filename=ebay-tracker-items.csv"
             },
         )
+
 
     @app.get("/tools/scanner")
     @auth_required
@@ -829,6 +855,179 @@ def create_app():
     
 
     return app
+
+@app.route("/import/ebay/active", methods=["GET", "POST"])
+@auth_required
+def import_ebay_active():
+    if request.method == "GET":
+        return render_template("import_ebay_active.html", step="upload")
+
+    # --- step 1: parse upload and show preview ---
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("Please choose the eBay CSV file to upload.", "error")
+        return redirect(url_for("import_ebay_active"))
+
+    try:
+        raw = f.read().decode("utf-8", errors="replace")
+    except Exception:
+        flash("Could not read that file. Make sure it’s a CSV exported from eBay.", "error")
+        return redirect(url_for("import_ebay_active"))
+
+    reader = csv.DictReader(io.StringIO(raw))
+    required_cols = ["Title", "Start date", "Current price", "Custom label (SKU)"]
+
+    missing = [c for c in required_cols if c not in (reader.fieldnames or [])]
+    if missing:
+        flash(f"Missing expected columns: {', '.join(missing)}", "error")
+        return redirect(url_for("import_ebay_active"))
+
+    # Pull existing items for matching
+    existing = Item.query.all()
+    existing_norm = [(it.id, (it.item_name or ""), _norm_title(it.item_name or "")) for it in existing]
+
+    rows = []
+    for i, r in enumerate(reader):
+        title = (r.get("Title") or "").strip()
+        if not title:
+            continue
+
+        start_date_raw = (r.get("Start date") or "").strip()
+        price_raw = (r.get("Current price") or "").strip()
+        sku_raw = (r.get("Custom label (SKU)") or "").strip()
+
+        # parse price
+        try:
+            price = float(str(price_raw).replace("$", "").replace(",", "").strip() or 0)
+        except Exception:
+            price = 0.0
+
+        # parse date -> MM-DD-YYYY
+        try:
+            date_listed = _parse_ebay_start_date(start_date_raw)
+        except Exception:
+            date_listed = ""
+
+        ntitle = _norm_title(title)
+
+        # find best match by similarity
+        best = None
+        best_score = 0.0
+        for (eid, etitle, entitle) in existing_norm:
+            if not entitle:
+                continue
+            score = _similar(ntitle, entitle)
+            if score > best_score:
+                best_score = score
+                best = (eid, etitle)
+
+        # threshold for "flag as possible duplicate"
+        flagged = best is not None and best_score >= 0.86
+
+        rows.append({
+            "row_idx": i,
+            "title": title,
+            "date_listed": date_listed,
+            "price": price,
+            "custom_sku": sku_raw,
+            "flagged": flagged,
+            "best_match_id": best[0] if best else None,
+            "best_match_title": best[1] if best else None,
+            "best_score": round(best_score, 3),
+        })
+
+    if not rows:
+        flash("No rows found in that file.", "warning")
+        return redirect(url_for("import_ebay_active"))
+
+    # Send preview rows to template (we’ll re-post them as hidden JSON)
+    return render_template("import_ebay_active.html", step="preview", rows=rows, raw_csv=raw)
+
+
+@app.route("/import/ebay/active/confirm", methods=["POST"])
+@auth_required
+def import_ebay_active_confirm():
+    raw_csv = request.form.get("raw_csv", "")
+    if not raw_csv:
+        flash("Import session expired (missing payload). Please upload again.", "error")
+        return redirect(url_for("import_ebay_active"))
+
+    reader = csv.DictReader(io.StringIO(raw_csv))
+    # decisions come back as decision_<row_idx>
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for i, r in enumerate(reader):
+        title = (r.get("Title") or "").strip()
+        if not title:
+            continue
+
+        decision = request.form.get(f"decision_{i}", "skip")  # skip | update | create
+        if decision == "skip":
+            skipped += 1
+            continue
+
+        start_date_raw = (r.get("Start date") or "").strip()
+        price_raw = (r.get("Current price") or "").strip()
+        sku_raw = (r.get("Custom label (SKU)") or "").strip()
+
+        try:
+            price = float(str(price_raw).replace("$", "").replace(",", "").strip() or 0)
+        except Exception:
+            price = 0.0
+
+        try:
+            date_listed = _parse_ebay_start_date(start_date_raw)
+        except Exception:
+            date_listed = ""
+
+        # If updating, we need the matched id from the form
+        if decision == "update":
+            match_id = request.form.get(f"matchid_{i}")
+            if not match_id:
+                skipped += 1
+                continue
+
+            item = Item.query.get(int(match_id))
+            if not item:
+                skipped += 1
+                continue
+
+            # Update a few safe fields (don’t touch COG, etc.)
+            item.item_name = title
+            if price:
+                item.sale_price = price
+            if date_listed:
+                item.date_listed = date_listed
+
+            # tuck custom SKU into notes (so you have it even before you add a real column)
+            if sku_raw:
+                note = (item.notes or "").strip()
+                tag = f"eBaySKU:{sku_raw}"
+                if tag not in note:
+                    item.notes = (note + ("\n" if note else "") + tag)
+
+            updated += 1
+            continue
+
+        # Otherwise create new
+        item = Item(
+            item_name=title,
+            sale_price=price if price else None,
+            date_listed=date_listed or None,
+            sold="N",  # adjust if your model uses boolean, etc.
+        )
+
+        if sku_raw:
+            item.notes = f"eBaySKU:{sku_raw}"
+
+        db.session.add(item)
+        created += 1
+
+    db.session.commit()
+    flash(f"Import complete. Created: {created}, Updated: {updated}, Skipped: {skipped}.", "success")
+    return redirect(url_for("index"))
 
 
 if __name__ == "__main__":

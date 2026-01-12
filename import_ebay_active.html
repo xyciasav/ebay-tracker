@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Import eBay Active Listings — eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2 style="margin:0 0 8px 0;">Import eBay Active Listings</h2>
+  <div class="small">Upload the eBay “All active listings” CSV. We’ll preview and flag possible duplicates.</div>
+
+  {% if step == "upload" %}
+    <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
+
+    <form method="post" enctype="multipart/form-data" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+      <div style="min-width:280px; flex:1;">
+        <label>eBay CSV file</label>
+        <input type="file" name="file" accept=".csv,text/csv" required />
+      </div>
+      <button type="submit" class="btn">Upload & Preview</button>
+      <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
+    </form>
+
+  {% elif step == "preview" %}
+    <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
+
+    <form method="post" action="{{ url_for('import_ebay_active_confirm') }}">
+      <input type="hidden" name="raw_csv" value="{{ raw_csv|e }}" />
+
+      <div class="small" style="margin-bottom:10px;">
+        For flagged rows, choose what to do: <b>Skip</b>, <b>Update existing</b>, or <b>Create new</b>.
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:90px;">Action</th>
+            <th>Title</th>
+            <th style="width:120px;">Start date</th>
+            <th style="width:110px;">Price</th>
+            <th style="width:160px;">Custom SKU</th>
+            <th style="width:260px;">Duplicate check</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>
+              {% if r.flagged %}
+                <select name="decision_{{ r.row_idx }}">
+                  <option value="skip" selected>Skip</option>
+                  <option value="update">Update</option>
+                  <option value="create">Create</option>
+                </select>
+                <input type="hidden" name="matchid_{{ r.row_idx }}" value="{{ r.best_match_id or '' }}" />
+              {% else %}
+                <select name="decision_{{ r.row_idx }}">
+                  <option value="create" selected>Create</option>
+                  <option value="skip">Skip</option>
+                </select>
+              {% endif %}
+            </td>
+
+            <td>{{ r.title }}</td>
+            <td>{{ r.date_listed }}</td>
+            <td>${{ "%.2f"|format(r.price) }}</td>
+            <td>{{ r.custom_sku }}</td>
+
+            <td class="small">
+              {% if r.flagged %}
+                <span style="color:var(--danger, #b00020); font-weight:700;">Possible duplicate</span><br/>
+                Match: {{ r.best_match_title }}<br/>
+                Score: {{ r.best_score }}
+              {% else %}
+                Looks new
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="submit" class="btn">Confirm Import</button>
+        <a class="btn secondary" href="{{ url_for('import_ebay_active') }}">Start Over</a>
+        <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}
