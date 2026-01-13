@@ -198,9 +198,15 @@
     <tbody>
       {% for r in top_profit %}
       <tr>
-        <td>
-          <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
-        </td>
+    <td>
+      {% if r.thumb_url %}
+        <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
+      {% else %}
+        <div class="thumb" style="display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.6;">
+          —
+        </div>
+      {% endif %}
+    </td>
         <td>
           <a href="{{ url_for('item_detail', sku=r.sku) }}">{{ r.sku }}</a>
         </td>
