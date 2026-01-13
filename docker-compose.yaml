@@ -8,8 +8,8 @@ services:
       - SQLALCHEMY_DATABASE_URI=sqlite:////data/ebay_tracker.db
       - UPLOAD_FOLDER=/data/uploads/items
       - AUTH_MODE=basic
-      - BASIC_AUTH_USER=mike
-      - BASIC_AUTH_PASS=source!
+      - BASIC_AUTH_USER=USERNAME
+      - BASIC_AUTH_PASS=PASSWORD
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads
