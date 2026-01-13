@@ -1,3 +1,4 @@
+![Inventory List](screenshots/inventory.png)
 # eBay Tracker
 
 A lightweight, self-hosted inventory and profit-tracking tool built for eBay resellers.
