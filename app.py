@@ -803,6 +803,30 @@ def create_app():
                     "date_sold": r.date_sold.isoformat() if r.date_sold else None,
                 }
             )
+                # --- attach thumbnail urls for top_profit ---
+        try:
+            top_skus = [tp["sku"] for tp in top_profit if tp.get("sku") is not None]
+            if top_skus:
+                # Pull first image per SKU (simple approach)
+                imgs = (
+                    ItemImage.query
+                    .filter(ItemImage.item_sku.in_(top_skus))
+                    .order_by(ItemImage.item_sku.asc(), ItemImage.id.asc())
+                    .all()
+                )
+
+                first_img = {}
+                for im in imgs:
+                    if im.item_sku not in first_img and im.filename:
+                        first_img[im.item_sku] = im.filename
+
+                for tp in top_profit:
+                    fn = first_img.get(tp["sku"])
+                    tp["thumb_url"] = url_for("uploaded_file", filename=fn) if fn else ""
+        except Exception as e:
+            # don't let reports page crash if something goes sideways
+            for tp in top_profit:
+                tp["thumb_url"] = ""
 
         kpis = {
             "total_items": total_items,
@@ -823,30 +847,6 @@ def create_app():
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
         )
-    # --- attach thumbnail urls for top_profit ---
-    try:
-        top_skus = [tp["sku"] for tp in top_profit if tp.get("sku") is not None]
-        if top_skus:
-            # Pull first image per SKU (simple approach)
-            imgs = (
-                ItemImage.query
-                .filter(ItemImage.item_sku.in_(top_skus))
-                .order_by(ItemImage.item_sku.asc(), ItemImage.id.asc())
-                .all()
-            )
-
-            first_img = {}
-            for im in imgs:
-                if im.item_sku not in first_img and im.filename:
-                    first_img[im.item_sku] = im.filename
-
-            for tp in top_profit:
-                fn = first_img.get(tp["sku"])
-                tp["thumb_url"] = url_for("uploaded_file", filename=fn) if fn else ""
-    except Exception as e:
-        # don't let reports page crash if something goes sideways
-        for tp in top_profit:
-            tp["thumb_url"] = ""
 
     @app.route("/item/new", methods=["GET", "POST"])
     @auth_required
