@@ -1,0 +1,40 @@
+services:
+  ebay-tracker:
+    build: .
+    container_name: ebay-tracker
+    restart: unless-stopped
+    environment:
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Set FLASK_SECRET_KEY in .env}
+      SQLALCHEMY_DATABASE_URI: sqlite:////data/ebay_tracker.db
+      UPLOAD_FOLDER: /data/uploads/items
+      AUTH_MODE: ${AUTH_MODE:-basic}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?Set BASIC_AUTH_USER in .env}
+      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:?Set BASIC_AUTH_PASS in .env}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-20971520}
+      MAX_PHOTOS_PER_ITEM: ${MAX_PHOTOS_PER_ITEM:-12}
+    volumes:
+      - ./data:/app/instance
+      - ./uploads:/app/uploads
+      - ./data:/data
+    ports:
+      - "5055:5055"
+    expose:
+      - "5055"
+    command: ["gunicorn", "-b", "0.0.0.0:5055", "app:create_app()", "--workers", "2", "--threads", "4", "--timeout", "120"]
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    container_name: ebay-tracker-caddy
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - ebay-tracker
+volumes:
+  caddy_data:
+  caddy_config:
