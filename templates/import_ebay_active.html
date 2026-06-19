@@ -10,6 +10,7 @@
     <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
 
     <form method="post" enctype="multipart/form-data" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <div style="min-width:280px; flex:1;">
         <label>eBay CSV file</label>
         <input type="file" name="file" accept=".csv,text/csv" required />
@@ -22,6 +23,7 @@
     <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
 
     <form method="post" action="{{ url_for('import_ebay_active_confirm') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="raw_csv" value="{{ raw_csv|e }}" />
 
       <div class="small" style="margin-bottom:10px;">

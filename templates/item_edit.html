@@ -9,6 +9,7 @@
 <div class="card">
   <h3 style="margin-top:0;">Edit SKU #{{ item.sku }}</h3>
   <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
       <div style="flex:1; min-width:220px;">
         <label>Item Name *</label>

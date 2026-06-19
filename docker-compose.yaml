@@ -4,12 +4,14 @@ services:
     container_name: ebay-tracker
     restart: unless-stopped
     environment:
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-change-me}
-      - SQLALCHEMY_DATABASE_URI=sqlite:////data/ebay_tracker.db
-      - UPLOAD_FOLDER=/data/uploads/items
-      - AUTH_MODE=basic
-      - BASIC_AUTH_USER=mike
-      - BASIC_AUTH_PASS=source!
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Set FLASK_SECRET_KEY in .env}
+      SQLALCHEMY_DATABASE_URI: sqlite:////data/ebay_tracker.db
+      UPLOAD_FOLDER: /data/uploads/items
+      AUTH_MODE: ${AUTH_MODE:-basic}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?Set BASIC_AUTH_USER in .env}
+      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:?Set BASIC_AUTH_PASS in .env}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-20971520}
+      MAX_PHOTOS_PER_ITEM: ${MAX_PHOTOS_PER_ITEM:-12}
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads

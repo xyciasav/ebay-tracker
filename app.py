@@ -1,8 +1,10 @@
 import os
+import hmac
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from sqlalchemy import func, case, text
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, Response, abort, session
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -67,6 +69,10 @@ def process_image(path: str, max_size: int = 1600):
     Overwrites the file at 'path' with an optimized version.
     """
     try:
+        # Verify before processing so an extension cannot masquerade as an image.
+        with Image.open(path) as probe:
+            probe.verify()
+
         img = Image.open(path)
         img = ImageOps.exif_transpose(img)  # auto-rotate correctly
         img.thumbnail((max_size, max_size))  # keep aspect ratio
@@ -78,6 +84,9 @@ def process_image(path: str, max_size: int = 1600):
 
     except Exception as e:
         print(f"Image processing failed for {path}: {e}")
+        return False
+
+    return True
 
 
 def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
@@ -115,13 +124,17 @@ def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
 
 def create_app():
     app = Flask(__name__)
-    app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+    app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+    if not app.secret_key:
+        raise RuntimeError("FLASK_SECRET_KEY must be set.")
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
         "SQLALCHEMY_DATABASE_URI",
         "sqlite:///ebay_tracker.db"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_BYTES", 20 * 1024 * 1024))
+    app.config["MAX_PHOTOS_PER_ITEM"] = int(os.environ.get("MAX_PHOTOS_PER_ITEM", 12))
 
     default_uploads_dir = Path("/data/uploads/items")
     upload_folder = os.environ.get("UPLOAD_FOLDER", str(default_uploads_dir))
@@ -151,7 +164,13 @@ def create_app():
     @app.context_processor
     def inject_estimator_defaults():
         # available in all templates
+        csrf_token = session.get("_csrf_token")
+        if not csrf_token:
+            csrf_token = secrets.token_urlsafe(32)
+            session["_csrf_token"] = csrf_token
+
         return dict(
+            csrf_token=csrf_token,
             est_defaults={
                 "ebay_fee_pct": app.config["EST_EBAY_FEE_PCT"],
                 "ebay_fixed_fee": app.config["EST_EBAY_FIXED_FEE"],
@@ -161,6 +180,16 @@ def create_app():
                 "ship_large": app.config["EST_SHIP_LARGE"],
             }
         )
+
+    @app.before_request
+    def protect_post_requests():
+        if request.method != "POST":
+            return
+
+        expected = session.get("_csrf_token", "")
+        supplied = request.form.get("_csrf_token", "")
+        if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+            abort(400, description="Invalid or missing CSRF token.")
     
     
     # -----------------------------
@@ -171,6 +200,13 @@ def create_app():
     BASIC_USER = os.environ.get("BASIC_AUTH_USER", "")
     BASIC_PASS = os.environ.get("BASIC_AUTH_PASS", "")
     BASIC_PASS_HASH = generate_password_hash(BASIC_PASS) if BASIC_PASS else ""
+
+    if AUTH_MODE not in {"off", "basic", "oidc"}:
+        raise RuntimeError("AUTH_MODE must be one of: off, basic, oidc.")
+    if AUTH_MODE == "basic" and (not BASIC_USER or not BASIC_PASS):
+        raise RuntimeError("BASIC_AUTH_USER and BASIC_AUTH_PASS must be set when AUTH_MODE=basic.")
+    if AUTH_MODE == "oidc":
+        raise RuntimeError("OIDC authentication is not implemented; use AUTH_MODE=basic or off.")
 
     basic_auth = HTTPBasicAuth()
 
@@ -851,6 +887,7 @@ def create_app():
     @app.route("/item/new", methods=["GET", "POST"])
     @auth_required
     def item_new():
+        prefill_barcode = request.args.get("barcode", "").strip()
         if request.method == "POST":
             item = Item(
                 item_name=request.form.get("item_name", "").strip(),
@@ -880,6 +917,7 @@ def create_app():
 
                 return render_template(
                     "item_new.html",
+                    item=item,
                     categories=categories,
                     sub_categories=sub_categories,
                     platforms=platforms,
@@ -891,12 +929,16 @@ def create_app():
             db.session.commit()  # assigns SKU
 
             files = request.files.getlist("photos")
+            accepted_photos = 0
             for f in files:
                 if not f or f.filename == "":
                     continue
                 if not allowed_file(f.filename):
                     flash(f"Skipped {f.filename}: unsupported file type.", "warning")
                     continue
+                if accepted_photos >= app.config["MAX_PHOTOS_PER_ITEM"]:
+                    flash(f"Only the first {app.config['MAX_PHOTOS_PER_ITEM']} photos were saved.", "warning")
+                    break
 
                 safe = secure_filename(f.filename)
                 ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
@@ -905,9 +947,14 @@ def create_app():
 
                 save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
                 f.save(save_path)
-                process_image(save_path)
+                if not process_image(save_path):
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                    flash(f"Skipped {f.filename}: file is not a valid image.", "warning")
+                    continue
 
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
+                accepted_photos += 1
 
             db.session.commit()
             flash(f"Created item SKU #{item.sku}.", "success")
@@ -923,6 +970,7 @@ def create_app():
             sub_categories=sub_categories,
             platforms=platforms,
             source_locations=source_locations,
+            prefill_barcode=prefill_barcode,
         )
 
     @app.route("/item/<int:sku>")
@@ -972,12 +1020,16 @@ def create_app():
                 )
 
             files = request.files.getlist("photos")
+            accepted_photos = 0
             for f in files:
                 if not f or f.filename == "":
                     continue
                 if not allowed_file(f.filename):
                     flash(f"Skipped {f.filename}: unsupported file type.", "warning")
                     continue
+                if accepted_photos >= app.config["MAX_PHOTOS_PER_ITEM"]:
+                    flash(f"Only the first {app.config['MAX_PHOTOS_PER_ITEM']} photos were saved.", "warning")
+                    break
 
                 safe = secure_filename(f.filename)
                 ts = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
@@ -986,9 +1038,14 @@ def create_app():
 
                 save_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_name)
                 f.save(save_path)
-                process_image(save_path)
+                if not process_image(save_path):
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                    flash(f"Skipped {f.filename}: file is not a valid image.", "warning")
+                    continue
 
                 db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
+                accepted_photos += 1
 
             db.session.commit()
             flash(f"Updated SKU #{item.sku}.", "success")

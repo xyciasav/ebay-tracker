@@ -61,7 +61,7 @@ This project is designed to help you **track inventory from acquisition to sale*
 - **Backend:** Python, Flask
 - **Database:** SQLite (SQLAlchemy ORM)
 - **Frontend:** Jinja2, vanilla CSS/JS
-- **Auth:** Optional HTTP Basic / OIDC
+- **Auth:** Optional HTTP Basic
 - **Image Handling:** Pillow
 - **Deployment:** Docker / Gunicorn friendly
 
@@ -86,6 +86,7 @@ This tool is:
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+export FLASK_SECRET_KEY="replace-with-a-long-random-value"
 python app.py
 ```
 Notes
@@ -93,4 +94,7 @@ Notes
 - Barcode scanning requires HTTPS on mobile browsers
 - Chrome for Android works best for camera access
 - SQLite is used by default but can be swapped for Postgres
+- Docker deployments require `FLASK_SECRET_KEY`, `BASIC_AUTH_USER`, and
+  `BASIC_AUTH_PASS` in a local `.env` file. Start with `.env.example` and do
+  not commit the resulting `.env` file.
 
