@@ -23,13 +23,14 @@ services:
     command: ["gunicorn", "-b", "0.0.0.0:5055", "app:create_app()", "--workers", "2", "--threads", "4", "--timeout", "120"]
 
   caddy:
-    image: caddy:2
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     container_name: ebay-tracker-caddy
     restart: unless-stopped
     ports:
       - "8443:8443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
