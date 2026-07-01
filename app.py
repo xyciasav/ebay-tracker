@@ -128,6 +128,14 @@ def _host_allowed_for_ebay_page(url: str) -> bool:
     return host == "ebay.com" or host.endswith(".ebay.com")
 
 
+def _host_allowed_for_ebay_image(url: str) -> bool:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host == "i.ebayimg.com" or host.endswith(".ebayimg.com")
+
+
 def _host_is_private_or_local(url: str) -> bool:
     try:
         host = urllib.parse.urlparse(url).hostname
@@ -148,8 +156,17 @@ def _fetch_url_bytes(url: str, max_bytes: int, timeout: int = 12):
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; eBayTracker/1.0)",
-            "Accept": "text/html,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": "https://www.ebay.com/",
+            "Upgrade-Insecure-Requests": "1",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -1420,8 +1437,11 @@ def create_app():
             flash("Paste an eBay item URL first.", "error")
             return redirect(url_for("item_detail", sku=item.sku))
 
-        if not _host_allowed_for_ebay_page(url):
-            flash("For safety, photo fetch only accepts eBay item URLs.", "error")
+        is_ebay_page = _host_allowed_for_ebay_page(url)
+        is_ebay_image = _host_allowed_for_ebay_image(url)
+
+        if not is_ebay_page and not is_ebay_image:
+            flash("For safety, photo fetch only accepts eBay item URLs or eBay image URLs.", "error")
             return redirect(url_for("item_detail", sku=item.sku))
 
         if _host_is_private_or_local(url):
@@ -1433,16 +1453,20 @@ def create_app():
             return redirect(url_for("item_detail", sku=item.sku))
 
         try:
-            page_bytes, content_type = _fetch_url_bytes(url, max_bytes=2 * 1024 * 1024)
-            page_text = page_bytes.decode("utf-8", errors="replace")
-            image_url = _extract_og_image(page_text)
-            if not image_url:
-                flash("Could not find a main photo on that eBay page.", "warning")
-                return redirect(url_for("item_detail", sku=item.sku))
+            if is_ebay_image:
+                image_url = url
+            else:
+                page_bytes, content_type = _fetch_url_bytes(url, max_bytes=2 * 1024 * 1024)
+                page_text = page_bytes.decode("utf-8", errors="replace")
+                image_url = _extract_og_image(page_text)
+                if not image_url:
+                    flash("Could not find a main photo on that eBay page.", "warning")
+                    return redirect(url_for("item_detail", sku=item.sku))
+                image_url = urllib.parse.urljoin(url, image_url)
 
-            image_url = urllib.parse.urljoin(url, image_url)
             _save_image_from_url(item, image_url, app.config["UPLOAD_FOLDER"])
-            item.ebay_item_url = url
+            if is_ebay_page:
+                item.ebay_item_url = url
             db.session.commit()
             flash("Fetched the main eBay photo and added it to this item.", "success")
         except (urllib.error.URLError, TimeoutError, ValueError) as e:

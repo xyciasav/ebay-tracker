@@ -34,19 +34,19 @@
       <h3 style="margin:0 0 8px 0;">eBay Listing Photo</h3>
       <form method="post" action="{{ url_for('fetch_ebay_photo', sku=item.sku) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-        <label>eBay Item URL</label>
+        <label>eBay Item URL or Image URL</label>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
           <input
             type="url"
             name="ebay_item_url"
             value="{{ item.ebay_item_url or '' }}"
-            placeholder="https://www.ebay.com/itm/..."
+            placeholder="https://www.ebay.com/itm/... or https://i.ebayimg.com/images/..."
             style="flex:1; min-width:260px;"
           >
           <button class="btn secondary" type="submit">Fetch Main Photo</button>
         </div>
         <div class="small" style="margin-top:8px;">
-          Pulls the page's main eBay image and saves it as a normal item photo. If eBay blocks the request, manual upload still works.
+          Pulls the page's main eBay image and saves it as a normal item photo. If eBay blocks the listing page, copy the photo's image address and paste that here instead.
         </div>
       </form>
     </div>
