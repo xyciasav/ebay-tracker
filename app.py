@@ -332,6 +332,55 @@ def _safe_return_url(value: str):
     return url_for("index")
 
 
+def _copy_missing_item_fields(target: Item, source: Item):
+    fields = [
+        "category",
+        "sub_category",
+        "platform",
+        "source_location",
+        "barcode",
+        "ebay_item_number",
+        "ebay_order_number",
+        "ebay_custom_label",
+        "ebay_item_url",
+        "ebay_category",
+        "ebay_condition",
+        "cog",
+        "sale_price",
+        "ad_fee",
+        "ebay_fee",
+        "shipping",
+        "buyer_paid_amount",
+        "date_listed",
+        "date_sold",
+    ]
+
+    copied = []
+    for field in fields:
+        if getattr(target, field) in (None, "") and getattr(source, field) not in (None, ""):
+            setattr(target, field, getattr(source, field))
+            copied.append(field)
+
+    target.sold = bool(target.sold or source.sold)
+    return copied
+
+
+def _merge_notes(target: Item, source: Item):
+    pieces = []
+    existing = (target.notes or "").strip()
+    if existing:
+        pieces.append(existing)
+
+    source_note = (source.notes or "").strip()
+    merge_header = f"Merged from SKU {source.sku}: {source.item_name}"
+    if source_note:
+        pieces.append(f"{merge_header}\n{source_note}")
+    else:
+        pieces.append(merge_header)
+
+    target.notes = "\n\n---\n".join(pieces)
+
+
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
     db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
     db.session.commit()
@@ -1629,6 +1678,47 @@ def create_app():
         db.session.commit()
         flash("Image deleted.", "success")
         return redirect(url_for("item_detail", sku=sku, return_to=return_to))
+
+    @app.route("/item/<int:sku>/merge", methods=["POST"])
+    @auth_required
+    def item_merge(sku: int):
+        source = Item.query.get_or_404(sku)
+        return_to = _safe_return_url(request.form.get("return_to"))
+        target_sku = parse_int(request.form.get("target_sku"))
+
+        if not target_sku:
+            flash("Enter the SKU you want to keep.", "error")
+            return redirect(url_for("item_detail", sku=source.sku, return_to=return_to))
+
+        if target_sku == source.sku:
+            flash("Choose a different SKU to merge into.", "error")
+            return redirect(url_for("item_detail", sku=source.sku, return_to=return_to))
+
+        target = Item.query.get(target_sku)
+        if not target:
+            flash(f"Could not find target SKU #{target_sku}.", "error")
+            return redirect(url_for("item_detail", sku=source.sku, return_to=return_to))
+
+        moved_images = 0
+        for img in list(source.images or []):
+            source.images.remove(img)
+            target.images.append(img)
+            moved_images += 1
+
+        copied_fields = _copy_missing_item_fields(target, source)
+        _merge_notes(target, source)
+
+        db.session.delete(source)
+        db.session.commit()
+
+        detail = []
+        if moved_images:
+            detail.append(f"moved {moved_images} photo{'s' if moved_images != 1 else ''}")
+        if copied_fields:
+            detail.append(f"filled {len(copied_fields)} missing field{'s' if len(copied_fields) != 1 else ''}")
+        suffix = f" ({', '.join(detail)})" if detail else ""
+        flash(f"Merged SKU #{sku} into SKU #{target.sku}{suffix}.", "success")
+        return redirect(url_for("item_detail", sku=target.sku, return_to=return_to))
 
     @app.route("/item/<int:sku>/delete", methods=["POST"])
     @auth_required

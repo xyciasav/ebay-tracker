@@ -142,7 +142,7 @@
       <article class="item-card">
         <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku, return_to=current_url) }}">
           {% if image %}
-            <img src="{{ url_for('uploaded_file', filename=image.filename) }}" alt="{{ item.item_name }}">
+            <img src="{{ url_for('uploaded_file', filename=image.filename) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">
           {% else %}
             <span>No photo</span>
           {% endif %}

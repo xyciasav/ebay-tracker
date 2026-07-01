@@ -24,7 +24,7 @@
     <div class="item-hero-photo">
       {% if hero_image %}
         <a href="{{ url_for('uploaded_file', filename=hero_image.filename) }}" target="_blank" rel="noopener">
-          <img src="{{ url_for('uploaded_file', filename=hero_image.filename) }}" alt="{{ item.item_name }}">
+          <img src="{{ url_for('uploaded_file', filename=hero_image.filename) }}" alt="{{ item.item_name }}" loading="eager" decoding="async">
         </a>
       {% else %}
         <span>No photo yet</span>
@@ -105,6 +105,29 @@
         </div>
       </form>
     </section>
+
+    <section class="card">
+      <h3 style="margin-top:0;">Merge Duplicate</h3>
+      <form method="post" action="{{ url_for('item_merge', sku=item.sku) }}"
+            onsubmit="return confirm('Merge SKU {{ item.sku }} into the target SKU? This will move photos and delete SKU {{ item.sku }}.');">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <label>Keep this SKU</label>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+          <input
+            type="number"
+            name="target_sku"
+            min="1"
+            placeholder="Target SKU to keep"
+            style="flex:1; min-width:180px;"
+          >
+          <button class="btn secondary" type="submit">Merge Into SKU</button>
+        </div>
+        <div class="small" style="margin-top:8px;">
+          Use this when the current item is the duplicate. Photos move to the target item, missing fields are filled, notes are combined, then this SKU is removed.
+        </div>
+      </form>
+    </section>
   </div>
 
   {% if item.notes %}
@@ -120,7 +143,7 @@
       {% for img in item.images %}
         <div>
           <a href="{{ url_for('uploaded_file', filename=img.filename) }}" target="_blank" rel="noopener">
-            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="Item photo">
+            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="Item photo" loading="lazy" decoding="async">
           </a>
 
           <form method="post" action="{{ url_for('delete_image', image_id=img.id) }}"
