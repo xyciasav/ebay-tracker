@@ -172,6 +172,7 @@
     .pill.sold { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); color: var(--success); }
     .pill.listed { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
     .pill.not-listed { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)); color: var(--warning); }
+    .pill.review { border-color: color-mix(in srgb, var(--warning) 70%, var(--border)); color: var(--warning); font-weight:700; }
 
     .page-hero{
       display:flex;
@@ -194,7 +195,7 @@
     }
     .status-tabs{
       display:grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap:10px;
       margin-bottom:14px;
     }

@@ -229,13 +229,13 @@
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>COG</label><input name="cog" value="{{ item.cog or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Sale Price</label><input name="sale_price" value="{{ item.sale_price or '' }}"></div>
-      <div style="flex:1; min-width:220px;"><label>Buyer Paid Amount</label><input name="buyer_paid_amount" value="{{ item.buyer_paid_amount or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Buyer Paid Amount (before tax)</label><input name="buyer_paid_amount" value="{{ item.buyer_paid_amount or '' }}"></div>
     </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>Ad Fee</label><input name="ad_fee" value="{{ item.ad_fee or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>eBay Fee</label><input name="ebay_fee" value="{{ item.ebay_fee or '' }}"></div>
-      <div style="flex:1; min-width:220px;"><label>Shipping</label><input name="shipping" value="{{ item.shipping or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Actual Shipping Cost</label><input name="shipping" value="{{ item.shipping or '' }}"></div>
     </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">

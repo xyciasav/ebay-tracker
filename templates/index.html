@@ -25,6 +25,9 @@
   <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
     <span>Listed</span><b>{{ status_counts.listed }}</b>
   </a>
+  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>Sold Review</span><b>{{ status_counts.sold_review }}</b>
+  </a>
   <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
     <span>Sold</span><b>{{ status_counts.sold }}</b>
   </a>
@@ -90,6 +93,7 @@
       <tbody>
         {% for item in items %}
           {% set is_listed = item.ebay_item_number %}
+          {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
           <tr>
             <td>{{ item.sku }}</td>
             <td>
@@ -97,7 +101,9 @@
               {% if item.source_location %}<div class="small">{{ item.source_location }}</div>{% endif %}
             </td>
             <td>
-              {% if item.sold %}
+              {% if needs_sold_review %}
+                <span class="pill review">Sold Review</span>
+              {% elif item.sold %}
                 <span class="pill sold">Sold</span>
               {% elif is_listed %}
                 <span class="pill listed">Listed</span>
@@ -122,6 +128,7 @@
   <div class="inventory-grid">
     {% for item in items %}
       {% set is_listed = item.ebay_item_number %}
+      {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
       {% set image = item.images[0] if item.images else none %}
       <article class="item-card">
         <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku) }}">
@@ -135,7 +142,9 @@
         <div class="item-card-body">
           <div class="item-card-top">
             <span class="small">SKU {{ item.sku }}</span>
-            {% if item.sold %}
+            {% if needs_sold_review %}
+              <span class="pill review">Sold Review</span>
+            {% elif item.sold %}
               <span class="pill sold">Sold</span>
             {% elif is_listed %}
               <span class="pill listed">Listed</span>
@@ -155,9 +164,18 @@
           <div class="checklist">
             <span class="{% if image %}done{% endif %}">Photo</span>
             <span class="{% if item.cog is not none %}done{% endif %}">Cost</span>
-            <span class="{% if item.sale_price is not none %}done{% endif %}">Price</span>
-            <span class="{% if is_listed %}done{% endif %}">eBay</span>
+            {% if item.sold %}
+              <span class="{% if item.shipping is not none %}done{% endif %}">Ship</span>
+              <span class="{% if item.ebay_fee is not none %}done{% endif %}">Fees</span>
+            {% else %}
+              <span class="{% if item.sale_price is not none %}done{% endif %}">Price</span>
+              <span class="{% if is_listed %}done{% endif %}">eBay</span>
+            {% endif %}
           </div>
+
+          {% if needs_sold_review %}
+            <div class="small">Needs actual COG, shipping, ad fee, eBay fee, or buyer-paid amount.</div>
+          {% endif %}
 
           {% if item.ebay_item_number or item.ebay_custom_label %}
             <div class="small ebay-line">

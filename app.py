@@ -312,6 +312,19 @@ def _append_note_tag(item, tag: str):
         item.notes = note + ("\n" if note else "") + tag
 
 
+def _sold_review_expr():
+    return (
+        (Item.sold.is_(True)) &
+        (
+            Item.cog.is_(None) |
+            Item.shipping.is_(None) |
+            Item.ad_fee.is_(None) |
+            Item.ebay_fee.is_(None) |
+            Item.buyer_paid_amount.is_(None)
+        )
+    )
+
+
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
     db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
     db.session.commit()
@@ -654,8 +667,16 @@ def create_app():
                 order_number = (r.get("Order Number") or "").strip()
                 custom_sku = (r.get("Custom Label") or "").strip()
                 price = parse_float(r.get("Sold For")) or 0.0
-                buyer_paid_amount = parse_float(r.get("Total Price")) or price
-                shipping = parse_float(r.get("Shipping And Handling"))
+                buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
+                total_price = parse_float(r.get("Total Price"))
+                ebay_collected_tax = parse_float(r.get("eBay Collected Tax")) or 0.0
+                ebay_collected_charges = parse_float(r.get("eBay Collected Charges")) or 0.0
+                buyer_paid_amount = (
+                    total_price - ebay_collected_tax - ebay_collected_charges
+                    if total_price is not None
+                    else price + buyer_shipping_paid
+                )
+                shipping = None
                 sale_date = _parse_ebay_date(r.get("Sale Date") or "")
                 date_listed = None
                 category = None
@@ -667,6 +688,9 @@ def create_app():
                 custom_sku = (r.get("Custom label (SKU)") or "").strip()
                 price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
                 buyer_paid_amount = None
+                buyer_shipping_paid = None
+                ebay_collected_tax = None
+                ebay_collected_charges = None
                 shipping = None
                 sale_date = None
                 date_listed = _parse_ebay_date(r.get("Start date") or "")
@@ -713,9 +737,13 @@ def create_app():
                 item.sold = True
                 item.date_sold = sale_date or item.date_sold
                 item.buyer_paid_amount = buyer_paid_amount if buyer_paid_amount is not None else item.buyer_paid_amount
-                item.shipping = shipping if shipping is not None else item.shipping
                 item.ebay_order_number = order_number or item.ebay_order_number
                 _append_note_tag(item, f"eBayOrder:{order_number}")
+                _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
+                _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
+                _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
+                if ebay_collected_charges:
+                    _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
             else:
                 item.sold = False if item.sold is None else item.sold
 
@@ -930,6 +958,8 @@ def create_app():
 
         if status_filter == "sold":
             query = query.filter(Item.sold.is_(True))
+        elif status_filter == "sold_review":
+            query = query.filter(_sold_review_expr())
         elif status_filter == "not_listed":
             query = query.filter(Item.sold.is_(False)).filter(~listed_expr)
         elif status_filter == "listed":
@@ -970,6 +1000,7 @@ def create_app():
             "all": Item.query.count(),
             "not_listed": Item.query.filter(Item.sold.is_(False)).filter(~listed_expr).count(),
             "listed": Item.query.filter(Item.sold.is_(False)).filter(listed_expr).count(),
+            "sold_review": Item.query.filter(_sold_review_expr()).count(),
             "sold": Item.query.filter(Item.sold.is_(True)).count(),
         }
 

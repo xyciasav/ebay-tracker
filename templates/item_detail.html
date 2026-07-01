@@ -65,7 +65,7 @@
       </div>
 
       <div>
-        <label>Buyer Paid Amount</label>
+        <label>Buyer Paid Amount (before tax)</label>
         <div>{{ item.buyer_paid_amount if item.buyer_paid_amount is not none else "" }}</div>
       </div>
 
@@ -80,7 +80,7 @@
       </div>
 
       <div>
-        <label>Shipping</label>
+        <label>Actual Shipping Cost</label>
         <div>{{ item.shipping if item.shipping is not none else "" }}</div>
       </div>
 
