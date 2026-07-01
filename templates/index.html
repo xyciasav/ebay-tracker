@@ -2,26 +2,41 @@
 {% block title %}Inventory — eBay Tracker{% endblock %}
 
 {% block content %}
-<div style="display:flex; gap:10px; flex-wrap:wrap;">
-  <a class="btn secondary" href="{{ url_for('item_new') }}">+ New Item</a>
-  <a class="btn secondary" href="{{ url_for('scanner_tool') }}">Scanner / Comps Tool</a>
-  <a class="btn secondary" href="{{ url_for('export_items_csv') }}">Download CSV</a>
-  <a class="btn secondary" href="{{ url_for('import_ebay') }}">Import eBay CSV</a>
+<div class="page-hero">
+  <div>
+    <h1>Listing Desk</h1>
+    <div class="small">Find what still needs to be listed, review active eBay items, and chase sold items without the spreadsheet fog.</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn" href="{{ url_for('item_new') }}">+ New Item</a>
+    <a class="btn secondary" href="{{ url_for('import_ebay') }}">Import eBay CSV</a>
+    <a class="btn secondary" href="{{ url_for('scanner_tool') }}">Scanner</a>
+    <a class="btn secondary" href="{{ url_for('export_items_csv') }}">Download CSV</a>
+  </div>
 </div>
 
-<div class="card">
-  <form method="get" class="row" style="align-items:end;">
+<div class="status-tabs">
+  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>All</span><b>{{ status_counts.all }}</b>
+  </a>
+  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>Not Listed</span><b>{{ status_counts.not_listed }}</b>
+  </a>
+  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>Listed</span><b>{{ status_counts.listed }}</b>
+  </a>
+  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>Sold</span><b>{{ status_counts.sold }}</b>
+  </a>
+</div>
+
+<div class="card filter-card">
+  <form method="get" class="filter-grid">
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <input type="hidden" name="view" value="{{ view_mode }}">
     <div>
       <label>Search</label>
-      <input name="q" value="{{ q }}" placeholder="name, notes, category...">
-    </div>
-    <div>
-      <label>Sold</label>
-      <select name="sold">
-        <option value="" {% if sold_filter=="" %}selected{% endif %}>All</option>
-        <option value="N" {% if sold_filter=="N" %}selected{% endif %}>N</option>
-        <option value="Y" {% if sold_filter=="Y" %}selected{% endif %}>Y</option>
-      </select>
+      <input name="q" value="{{ q }}" placeholder="name, eBay item #, notes, barcode...">
     </div>
     <div>
       <label>Platform</label>
@@ -41,74 +56,129 @@
         {% endfor %}
       </select>
     </div>
-    <div style="display:flex; gap:10px;">
+    <div class="filter-actions">
       <button class="btn" type="submit">Filter</button>
       <a class="btn secondary" href="{{ url_for('index') }}">Reset</a>
     </div>
   </form>
 </div>
 
-<div class="card" style="margin-top:14px;">
-<table class="table">
-  <thead>
-    <tr>
-      <th>SKU</th>
-      <th>Item</th>
-      <th>Category</th>
-      <th>Platform</th>
-      <th>eBay</th>
-      <th>Source</th>
-      <th>COG</th>
-      <th>Sold</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-
-  <tbody>
-    {% for item in items %}
-      <tr>
-        <td>{{ item.sku }}</td>
-
-        <td>
-          <a href="{{ url_for('item_detail', sku=item.sku) }}">
-            {{ item.item_name }}
-          </a>
-        </td>
-
-        <td>{{ item.category or '' }}</td>
-        <td>{{ item.platform or '' }}</td>
-        <td>
-          {% if item.ebay_item_number %}
-            <div>{{ item.ebay_item_number }}</div>
-          {% endif %}
-          {% if item.ebay_custom_label %}
-            <div class="small">{{ item.ebay_custom_label }}</div>
-          {% endif %}
-        </td>
-
-        <!-- ✅ NEW COLUMN (must be inside the loop) -->
-        <td>{{ item.source_location or '' }}</td>
-
-        <td>
-          {% if item.cog is not none %}
-            ${{ '%.2f'|format(item.cog) }}
-          {% endif %}
-        </td>
-
-        <td>
-          {% if item.sold %}
-            <span class="pill">Sold</span>
-          {% else %}
-            <span class="pill secondary">Unsold</span>
-          {% endif %}
-        </td>
-
-        <td>
-          <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="view-bar">
+  <div class="small">{{ items|length }} item{{ '' if items|length == 1 else 's' }} shown</div>
+  <div class="segmented">
+    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter) }}">Cards</a>
+    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter) }}">Table</a>
+  </div>
 </div>
+
+{% if view_mode == "table" %}
+  <div class="card table-card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Item</th>
+          <th>Status</th>
+          <th>Category</th>
+          <th>eBay</th>
+          <th>Price</th>
+          <th>COG</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for item in items %}
+          {% set is_listed = item.ebay_item_number or item.date_listed or item.platform == "eBay" %}
+          <tr>
+            <td>{{ item.sku }}</td>
+            <td>
+              <a href="{{ url_for('item_detail', sku=item.sku) }}">{{ item.item_name }}</a>
+              {% if item.source_location %}<div class="small">{{ item.source_location }}</div>{% endif %}
+            </td>
+            <td>
+              {% if item.sold %}
+                <span class="pill sold">Sold</span>
+              {% elif is_listed %}
+                <span class="pill listed">Listed</span>
+              {% else %}
+                <span class="pill not-listed">Not Listed</span>
+              {% endif %}
+            </td>
+            <td>{{ item.category or item.ebay_category or '' }}</td>
+            <td>
+              {% if item.ebay_item_number %}<div>{{ item.ebay_item_number }}</div>{% endif %}
+              {% if item.ebay_custom_label %}<div class="small">{{ item.ebay_custom_label }}</div>{% endif %}
+            </td>
+            <td>{% if item.sale_price is not none %}${{ '%.2f'|format(item.sale_price) }}{% endif %}</td>
+            <td>{% if item.cog is not none %}${{ '%.2f'|format(item.cog) }}{% endif %}</td>
+            <td><a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="inventory-grid">
+    {% for item in items %}
+      {% set is_listed = item.ebay_item_number or item.date_listed or item.platform == "eBay" %}
+      {% set image = item.images[0] if item.images else none %}
+      <article class="item-card">
+        <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku) }}">
+          {% if image %}
+            <img src="{{ url_for('uploaded_file', filename=image.filename) }}" alt="{{ item.item_name }}">
+          {% else %}
+            <span>No photo</span>
+          {% endif %}
+        </a>
+
+        <div class="item-card-body">
+          <div class="item-card-top">
+            <span class="small">SKU {{ item.sku }}</span>
+            {% if item.sold %}
+              <span class="pill sold">Sold</span>
+            {% elif is_listed %}
+              <span class="pill listed">Listed</span>
+            {% else %}
+              <span class="pill not-listed">Not Listed</span>
+            {% endif %}
+          </div>
+
+          <h3><a href="{{ url_for('item_detail', sku=item.sku) }}">{{ item.item_name }}</a></h3>
+
+          <div class="meta-row">
+            {% if item.sale_price is not none %}<span>${{ '%.2f'|format(item.sale_price) }}</span>{% endif %}
+            {% if item.category or item.ebay_category %}<span>{{ item.category or item.ebay_category }}</span>{% endif %}
+            {% if item.source_location %}<span>{{ item.source_location }}</span>{% endif %}
+          </div>
+
+          <div class="checklist">
+            <span class="{% if image %}done{% endif %}">Photo</span>
+            <span class="{% if item.cog is not none %}done{% endif %}">Cost</span>
+            <span class="{% if item.sale_price is not none %}done{% endif %}">Price</span>
+            <span class="{% if is_listed %}done{% endif %}">eBay</span>
+          </div>
+
+          {% if item.ebay_item_number or item.ebay_custom_label %}
+            <div class="small ebay-line">
+              {% if item.ebay_item_number %}#{{ item.ebay_item_number }}{% endif %}
+              {% if item.ebay_custom_label %} · {{ item.ebay_custom_label }}{% endif %}
+            </div>
+          {% endif %}
+
+          <div class="card-actions">
+            <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku) }}">Open</a>
+            <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
+          </div>
+        </div>
+      </article>
+    {% else %}
+      <div class="empty-state card">
+        <h3>No items found</h3>
+        <p class="small">Try a different filter, import an eBay CSV, or add a new item.</p>
+        <a class="btn" href="{{ url_for('item_new') }}">+ New Item</a>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
 {% endblock %}

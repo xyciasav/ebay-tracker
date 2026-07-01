@@ -789,17 +789,30 @@ def create_app():
     @auth_required
     def index():
 
-        sold_filter = request.args.get("sold", "")  # "", "Y", "N"
+        status_filter = request.args.get("status", "all").strip().lower()
+        view_mode = request.args.get("view", "cards").strip().lower()
         platform = request.args.get("platform", "").strip()
         category = request.args.get("category", "").strip()
         q = request.args.get("q", "").strip()
 
         query = Item.query
+        listed_expr = (
+            (Item.ebay_item_number.isnot(None)) |
+            (Item.date_listed.isnot(None)) |
+            (Item.platform == "eBay")
+        )
 
-        if sold_filter == "Y":
+        if status_filter == "sold":
             query = query.filter(Item.sold.is_(True))
-        elif sold_filter == "N":
-            query = query.filter(Item.sold.is_(False))
+        elif status_filter == "not_listed":
+            query = query.filter(Item.sold.is_(False)).filter(~listed_expr)
+        elif status_filter == "listed":
+            query = query.filter(Item.sold.is_(False)).filter(listed_expr)
+        else:
+            status_filter = "all"
+
+        if view_mode not in {"cards", "table"}:
+            view_mode = "cards"
 
         if platform:
             query = query.filter(Item.platform == platform)
@@ -826,6 +839,12 @@ def create_app():
         platforms = get_distinct_values(Item, Item.platform)
         categories = get_distinct_values(Item, Item.category)
         source_locations = get_distinct_values(Item, Item.source_location)
+        status_counts = {
+            "all": Item.query.count(),
+            "not_listed": Item.query.filter(Item.sold.is_(False)).filter(~listed_expr).count(),
+            "listed": Item.query.filter(Item.sold.is_(False)).filter(listed_expr).count(),
+            "sold": Item.query.filter(Item.sold.is_(True)).count(),
+        }
 
         return render_template(
             "index.html",
@@ -833,7 +852,9 @@ def create_app():
             platforms=platforms,
             categories=categories,
             source_locations=source_locations,
-            sold_filter=sold_filter,
+            status_filter=status_filter,
+            status_counts=status_counts,
+            view_mode=view_mode,
             platform_filter=platform,
             category_filter=category,
             q=q,
