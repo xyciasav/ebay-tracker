@@ -51,6 +51,18 @@ def parse_date(value: str):
         return None
 
 
+def parse_int(value: str):
+    if value is None:
+        return None
+    v = str(value).strip().replace(",", "")
+    if not v:
+        return None
+    try:
+        return int(float(v))
+    except ValueError:
+        return None
+
+
 def get_distinct_values(model, column):
     rows = db.session.query(column).distinct().filter(column.isnot(None)).order_by(column).all()
     values = []
@@ -117,6 +129,67 @@ def _parse_ebay_start_date(s: str):
     return dt.date()
 
 
+def _parse_ebay_date(s: str):
+    if not s:
+        return None
+    v = s.strip()
+    if not v:
+        return None
+
+    # Active listing exports include time + timezone. Order exports are usually date-only.
+    for fmt in ("%b-%d-%y %H:%M:%S", "%b-%d-%y", "%Y-%m-%d"):
+        candidate = v
+        if fmt == "%b-%d-%y %H:%M:%S":
+            parts = candidate.split()
+            if len(parts) >= 3 and parts[-1].isalpha() and len(parts[-1]) in (2, 3, 4):
+                candidate = " ".join(parts[:-1])
+        try:
+            return datetime.strptime(candidate, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _detect_ebay_csv(raw: str):
+    """
+    eBay exports are not consistent: the orders report can include blank preamble rows
+    before the actual header. Return (kind, headers, data_rows), where kind is
+    "active" or "orders".
+    """
+    parsed = list(csv.reader(io.StringIO(raw)))
+    for idx, row in enumerate(parsed):
+        headers = [(h or "").strip().lstrip("\ufeff") for h in row]
+        header_set = set(headers)
+        if {"Item number", "Title", "Current price"}.issubset(header_set):
+            return "active", headers, parsed[idx + 1:]
+        if {"Order Number", "Item Number", "Item Title", "Sold For", "Sale Date"}.issubset(header_set):
+            return "orders", headers, parsed[idx + 1:]
+    return None, [], []
+
+
+def _iter_ebay_rows(raw: str):
+    kind, headers, data_rows = _detect_ebay_csv(raw)
+    if not kind:
+        return None, []
+
+    rows = []
+    for row in data_rows:
+        if not any((cell or "").strip() for cell in row):
+            continue
+        padded = list(row) + [""] * max(0, len(headers) - len(row))
+        rows.append({headers[i]: padded[i] if i < len(padded) else "" for i in range(len(headers))})
+    return kind, rows
+
+
+def _append_note_tag(item, tag: str):
+    tag = (tag or "").strip()
+    if not tag:
+        return
+    note = (item.notes or "").strip()
+    if tag not in note:
+        item.notes = note + ("\n" if note else "") + tag
+
+
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
     db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
     db.session.commit()
@@ -160,6 +233,16 @@ def create_app():
                 _sqlite_add_column("items", "source_location", "VARCHAR(120)")
             if not _sqlite_column_exists("items", "barcode"):
                 _sqlite_add_column("items", "barcode", "VARCHAR(64)")
+            if not _sqlite_column_exists("items", "ebay_item_number"):
+                _sqlite_add_column("items", "ebay_item_number", "VARCHAR(32)")
+            if not _sqlite_column_exists("items", "ebay_order_number"):
+                _sqlite_add_column("items", "ebay_order_number", "VARCHAR(64)")
+            if not _sqlite_column_exists("items", "ebay_custom_label"):
+                _sqlite_add_column("items", "ebay_custom_label", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "ebay_category"):
+                _sqlite_add_column("items", "ebay_category", "VARCHAR(160)")
+            if not _sqlite_column_exists("items", "ebay_condition"):
+                _sqlite_add_column("items", "ebay_condition", "VARCHAR(120)")
 
     @app.context_processor
     def inject_estimator_defaults():
@@ -253,6 +336,11 @@ def create_app():
             "category",
             "sub_category",
             "platform",
+            "ebay_item_number",
+            "ebay_order_number",
+            "ebay_custom_label",
+            "ebay_category",
+            "ebay_condition",
             "barcode",
             "source_location",
             "cog",
@@ -281,6 +369,11 @@ def create_app():
                 it.category or "",
                 it.sub_category or "",
                 it.platform or "",
+                it.ebay_item_number or "",
+                it.ebay_order_number or "",
+                it.ebay_custom_label or "",
+                it.ebay_category or "",
+                it.ebay_condition or "",
                 it.barcode or "",
                 it.source_location or "",
                 it.cog if it.cog is not None else "",
@@ -306,6 +399,207 @@ def create_app():
                 "Content-Disposition": "attachment; filename=ebay-tracker-items.csv"
             },
         )
+
+    @app.route("/import/ebay", methods=["GET", "POST"])
+    @auth_required
+    def import_ebay():
+        if request.method == "GET":
+            return render_template("import_ebay.html", step="upload")
+
+        f = request.files.get("file")
+        if not f or not f.filename:
+            flash("Please choose an eBay CSV file to upload.", "error")
+            return redirect(url_for("import_ebay"))
+
+        try:
+            raw = f.read().decode("utf-8", errors="replace")
+        except Exception:
+            flash("Could not read that file. Make sure it is a CSV exported from eBay.", "error")
+            return redirect(url_for("import_ebay"))
+
+        report_kind, parsed_rows = _iter_ebay_rows(raw)
+        if not report_kind:
+            flash("That does not look like an eBay active listings or orders CSV.", "error")
+            return redirect(url_for("import_ebay"))
+
+        existing = Item.query.all()
+        existing_norm = [
+            (
+                it.sku,
+                it.item_name or "",
+                _norm_title(it.item_name or ""),
+                (getattr(it, "ebay_item_number", None) or "").strip(),
+                (getattr(it, "ebay_custom_label", None) or "").strip(),
+            )
+            for it in existing
+        ]
+
+        rows = []
+        for i, r in enumerate(parsed_rows):
+            if report_kind == "orders":
+                title = (r.get("Item Title") or "").strip()
+                ebay_item_number = (r.get("Item Number") or "").strip()
+                price = parse_float(r.get("Sold For")) or 0.0
+                date_display = _parse_ebay_date(r.get("Sale Date") or "")
+                custom_sku = (r.get("Custom Label") or "").strip()
+                order_number = (r.get("Order Number") or "").strip()
+                quantity = parse_int(r.get("Quantity")) or 1
+            else:
+                title = (r.get("Title") or "").strip()
+                ebay_item_number = (r.get("Item number") or "").strip()
+                price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
+                date_display = _parse_ebay_date(r.get("Start date") or "")
+                custom_sku = (r.get("Custom label (SKU)") or "").strip()
+                order_number = ""
+                quantity = parse_int(r.get("Available quantity")) or 1
+
+            if not title:
+                continue
+
+            ntitle = _norm_title(title)
+            best = None
+            best_score = 0.0
+            match_reason = ""
+            for (eid, etitle, entitle, e_item_no, e_custom_label) in existing_norm:
+                if ebay_item_number and e_item_no and ebay_item_number == e_item_no:
+                    best = (eid, etitle)
+                    best_score = 1.0
+                    match_reason = "Same eBay item number"
+                    break
+                if custom_sku and e_custom_label and custom_sku == e_custom_label:
+                    best = (eid, etitle)
+                    best_score = 0.98
+                    match_reason = "Same eBay custom label"
+                    break
+                if not entitle:
+                    continue
+                score = _similar(ntitle, entitle)
+                if score > best_score:
+                    best_score = score
+                    best = (eid, etitle)
+                    match_reason = "Similar title"
+
+            flagged = best is not None and best_score >= 0.86
+            rows.append({
+                "row_idx": i,
+                "title": title,
+                "date_display": date_display,
+                "price": price,
+                "custom_sku": custom_sku,
+                "ebay_item_number": ebay_item_number,
+                "order_number": order_number,
+                "quantity": quantity,
+                "flagged": flagged,
+                "best_match_id": best[0] if best else None,
+                "best_match_title": best[1] if best else None,
+                "best_score": round(best_score, 3),
+                "match_reason": match_reason,
+                "default_action": "update" if flagged else "create",
+            })
+
+        if not rows:
+            flash("No usable rows found in that file.", "warning")
+            return redirect(url_for("import_ebay"))
+
+        return render_template("import_ebay.html", step="preview", rows=rows, raw_csv=raw, report_kind=report_kind)
+
+
+    @app.route("/import/ebay/confirm", methods=["POST"])
+    @auth_required
+    def import_ebay_confirm():
+        raw_csv = request.form.get("raw_csv", "")
+        if not raw_csv:
+            flash("Import session expired. Please upload again.", "error")
+            return redirect(url_for("import_ebay"))
+
+        report_kind, parsed_rows = _iter_ebay_rows(raw_csv)
+        if not report_kind:
+            flash("Import session expired or the CSV format was not recognized. Please upload again.", "error")
+            return redirect(url_for("import_ebay"))
+
+        created = 0
+        updated = 0
+        skipped = 0
+
+        for i, r in enumerate(parsed_rows):
+            if report_kind == "orders":
+                title = (r.get("Item Title") or "").strip()
+                ebay_item_number = (r.get("Item Number") or "").strip()
+                order_number = (r.get("Order Number") or "").strip()
+                custom_sku = (r.get("Custom Label") or "").strip()
+                price = parse_float(r.get("Sold For")) or 0.0
+                buyer_paid_amount = parse_float(r.get("Total Price")) or price
+                shipping = parse_float(r.get("Shipping And Handling"))
+                sale_date = _parse_ebay_date(r.get("Sale Date") or "")
+                date_listed = None
+                category = None
+                condition = None
+            else:
+                title = (r.get("Title") or "").strip()
+                ebay_item_number = (r.get("Item number") or "").strip()
+                order_number = ""
+                custom_sku = (r.get("Custom label (SKU)") or "").strip()
+                price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
+                buyer_paid_amount = None
+                shipping = None
+                sale_date = None
+                date_listed = _parse_ebay_date(r.get("Start date") or "")
+                category = (r.get("eBay category 1 name") or "").strip() or None
+                condition = (r.get("Condition") or "").strip() or None
+
+            if not title:
+                continue
+
+            decision = request.form.get(f"decision_{i}", "skip")
+            if decision == "skip":
+                skipped += 1
+                continue
+
+            if decision == "update":
+                match_id = request.form.get(f"matchid_{i}")
+                item = Item.query.get(int(match_id)) if match_id else None
+                if not item:
+                    skipped += 1
+                    continue
+            else:
+                item = Item(item_name=title)
+                db.session.add(item)
+                created += 1
+
+            item.item_name = title
+            item.platform = item.platform or "eBay"
+            if price:
+                item.sale_price = price
+            if date_listed:
+                item.date_listed = date_listed
+            if ebay_item_number:
+                item.ebay_item_number = ebay_item_number
+            if custom_sku:
+                item.ebay_custom_label = custom_sku
+            if category:
+                item.ebay_category = category
+                item.category = item.category or category
+            if condition:
+                item.ebay_condition = condition
+
+            if report_kind == "orders":
+                item.sold = True
+                item.date_sold = sale_date or item.date_sold
+                item.buyer_paid_amount = buyer_paid_amount if buyer_paid_amount is not None else item.buyer_paid_amount
+                item.shipping = shipping if shipping is not None else item.shipping
+                item.ebay_order_number = order_number or item.ebay_order_number
+                _append_note_tag(item, f"eBayOrder:{order_number}")
+            else:
+                item.sold = False if item.sold is None else item.sold
+
+            _append_note_tag(item, f"eBaySKU:{custom_sku}")
+            if decision == "update":
+                updated += 1
+
+        db.session.commit()
+        label = "orders" if report_kind == "orders" else "active listings"
+        flash(f"Imported eBay {label}. Created: {created}, Updated: {updated}, Skipped: {skipped}.", "success")
+        return redirect(url_for("index"))
 
     @app.route("/import/ebay/active", methods=["GET", "POST"])
     @auth_required
@@ -519,7 +813,12 @@ def create_app():
                 (Item.sub_category.ilike(like)) |
                 (Item.category.ilike(like)) |
                 (Item.source_location.ilike(like)) |
-                (Item.barcode.ilike(like))
+                (Item.barcode.ilike(like)) |
+                (Item.ebay_item_number.ilike(like)) |
+                (Item.ebay_order_number.ilike(like)) |
+                (Item.ebay_custom_label.ilike(like)) |
+                (Item.ebay_category.ilike(like)) |
+                (Item.ebay_condition.ilike(like))
             )
 
         items = query.order_by(Item.sku.desc()).all()

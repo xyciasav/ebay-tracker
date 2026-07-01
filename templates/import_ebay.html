@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Import eBay CSV — eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2 style="margin:0 0 8px 0;">Import eBay CSV</h2>
+  <div class="small">
+    Upload either an eBay <b>All active listings</b> report or an <b>All orders</b> report.
+    Active listings add/update listed inventory; orders mark matching items as sold.
+  </div>
+
+  {% if step == "upload" %}
+    <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
+
+    <form method="post" enctype="multipart/form-data" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <div style="min-width:280px; flex:1;">
+        <label>eBay CSV file</label>
+        <input type="file" name="file" accept=".csv,text/csv" required />
+      </div>
+      <button type="submit" class="btn">Upload & Preview</button>
+      <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
+    </form>
+
+    <div class="grid" style="margin-top:14px;">
+      <div class="card">
+        <b>Active listings</b>
+        <div class="small">Creates or updates items with eBay item number, current price, listing date, condition, and category.</div>
+      </div>
+      <div class="card">
+        <b>Orders</b>
+        <div class="small">Matches by eBay item number first, then label/title, and marks matching dashboard items sold.</div>
+      </div>
+    </div>
+
+  {% elif step == "preview" %}
+    <hr style="margin:14px 0; border:0; border-top:1px solid var(--border);" />
+
+    <form method="post" action="{{ url_for('import_ebay_confirm') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="raw_csv" value="{{ raw_csv|e }}" />
+
+      <div class="small" style="margin-bottom:10px;">
+        Detected report:
+        <b>{% if report_kind == "orders" %}Orders{% else %}Active listings{% endif %}</b>.
+        Review the actions before importing.
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:110px;">Action</th>
+            <th>Title</th>
+            <th style="width:120px;">eBay Item #</th>
+            <th style="width:110px;">Price</th>
+            <th style="width:130px;">Date</th>
+            <th style="width:150px;">Custom Label</th>
+            <th style="width:260px;">Match</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>
+              <select name="decision_{{ r.row_idx }}">
+                {% if r.flagged %}
+                  <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
+                  <option value="create">Create</option>
+                  <option value="skip">Skip</option>
+                {% else %}
+                  <option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>
+                  <option value="skip">Skip</option>
+                {% endif %}
+              </select>
+              <input type="hidden" name="matchid_{{ r.row_idx }}" value="{{ r.best_match_id or '' }}" />
+            </td>
+
+            <td>
+              {{ r.title }}
+              {% if report_kind == "orders" and r.order_number %}
+                <div class="small">Order {{ r.order_number }}</div>
+              {% endif %}
+            </td>
+            <td>{{ r.ebay_item_number }}</td>
+            <td>${{ "%.2f"|format(r.price) }}</td>
+            <td>{{ r.date_display or "" }}</td>
+            <td>{{ r.custom_sku }}</td>
+
+            <td class="small">
+              {% if r.flagged %}
+                <b>{{ r.match_reason }}</b><br/>
+                {{ r.best_match_title }}<br/>
+                Score: {{ r.best_score }}
+              {% else %}
+                No existing match found
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="submit" class="btn">Confirm Import</button>
+        <a class="btn secondary" href="{{ url_for('import_ebay') }}">Start Over</a>
+        <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

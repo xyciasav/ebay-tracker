@@ -22,6 +22,13 @@ class Item(db.Model):
     # NEW: barcode/UPC/EAN (optional)
     barcode = db.Column(db.String(64), nullable=True)
 
+    # eBay import/listing metadata
+    ebay_item_number = db.Column(db.String(32), nullable=True)
+    ebay_order_number = db.Column(db.String(64), nullable=True)
+    ebay_custom_label = db.Column(db.String(120), nullable=True)
+    ebay_category = db.Column(db.String(160), nullable=True)
+    ebay_condition = db.Column(db.String(120), nullable=True)
+
     cog = db.Column(db.Float, nullable=True)          # cost of goods
     sale_price = db.Column(db.Float, nullable=True)
     ad_fee = db.Column(db.Float, nullable=True)

@@ -6,7 +6,7 @@
   <a class="btn secondary" href="{{ url_for('item_new') }}">+ New Item</a>
   <a class="btn secondary" href="{{ url_for('scanner_tool') }}">Scanner / Comps Tool</a>
   <a class="btn secondary" href="{{ url_for('export_items_csv') }}">Download CSV</a>
-  <a class="btn secondary" href="{{ url_for('import_ebay_active') }}">Upload eBay Listings</a>
+  <a class="btn secondary" href="{{ url_for('import_ebay') }}">Import eBay CSV</a>
 </div>
 
 <div class="card">
@@ -56,6 +56,7 @@
       <th>Item</th>
       <th>Category</th>
       <th>Platform</th>
+      <th>eBay</th>
       <th>Source</th>
       <th>COG</th>
       <th>Sold</th>
@@ -76,6 +77,14 @@
 
         <td>{{ item.category or '' }}</td>
         <td>{{ item.platform or '' }}</td>
+        <td>
+          {% if item.ebay_item_number %}
+            <div>{{ item.ebay_item_number }}</div>
+          {% endif %}
+          {% if item.ebay_custom_label %}
+            <div class="small">{{ item.ebay_custom_label }}</div>
+          {% endif %}
+        </td>
 
         <!-- ✅ NEW COLUMN (must be inside the loop) -->
         <td>{{ item.source_location or '' }}</td>
