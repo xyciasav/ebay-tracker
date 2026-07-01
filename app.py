@@ -325,6 +325,13 @@ def _sold_review_expr():
     )
 
 
+def _safe_return_url(value: str):
+    value = (value or "").strip()
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    return url_for("index")
+
+
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
     db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
     db.session.commit()
@@ -1016,6 +1023,7 @@ def create_app():
             platform_filter=platform,
             category_filter=category,
             q=q,
+            current_url=request.full_path.rstrip("?"),
         )
 
     @app.route("/reports")
@@ -1456,32 +1464,35 @@ def create_app():
     @auth_required
     def item_detail(sku: int):
         item = Item.query.get_or_404(sku)
-        return render_template("item_detail.html", item=item)
+        return_to = _safe_return_url(request.args.get("return_to"))
+        return render_template("item_detail.html", item=item, return_to=return_to)
 
     @app.route("/item/<int:sku>/fetch-ebay-photo", methods=["POST"])
     @auth_required
     def fetch_ebay_photo(sku: int):
         item = Item.query.get_or_404(sku)
+        raw_return_to = request.form.get("return_to")
+        return_to = _safe_return_url(raw_return_to) if raw_return_to else url_for("item_detail", sku=item.sku)
         url = _normalize_url(request.form.get("ebay_item_url", "") or item.ebay_item_url or "")
 
         if not url:
             flash("Paste an eBay item URL first.", "error")
-            return redirect(url_for("item_detail", sku=item.sku))
+            return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
         is_ebay_page = _host_allowed_for_ebay_page(url)
         is_ebay_image = _host_allowed_for_ebay_image(url)
 
         if not is_ebay_page and not is_ebay_image:
             flash("For safety, photo fetch only accepts eBay item URLs or eBay image URLs.", "error")
-            return redirect(url_for("item_detail", sku=item.sku))
+            return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
         if _host_is_private_or_local(url):
             flash("That URL could not be fetched safely.", "error")
-            return redirect(url_for("item_detail", sku=item.sku))
+            return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
         if len(item.images or []) >= app.config["MAX_PHOTOS_PER_ITEM"]:
             flash(f"This item already has the maximum of {app.config['MAX_PHOTOS_PER_ITEM']} photos.", "warning")
-            return redirect(url_for("item_detail", sku=item.sku))
+            return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
         try:
             if is_ebay_image:
@@ -1492,7 +1503,7 @@ def create_app():
                 image_url = _extract_og_image(page_text)
                 if not image_url:
                     flash("Could not find a main photo on that eBay page.", "warning")
-                    return redirect(url_for("item_detail", sku=item.sku))
+                    return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
                 image_url = urllib.parse.urljoin(url, image_url)
 
             _save_image_from_url(item, image_url, app.config["UPLOAD_FOLDER"])
@@ -1507,12 +1518,14 @@ def create_app():
             db.session.rollback()
             flash("Could not fetch the eBay photo. eBay may have blocked the request or changed the page.", "error")
 
-        return redirect(url_for("item_detail", sku=item.sku))
+        return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
     @app.route("/item/<int:sku>/edit", methods=["GET", "POST"])
     @auth_required
     def item_edit(sku: int):
         item = Item.query.get_or_404(sku)
+        raw_return_to = request.form.get("return_to") if request.method == "POST" else request.args.get("return_to")
+        return_to = _safe_return_url(raw_return_to) if raw_return_to else url_for("item_detail", sku=item.sku)
 
         if request.method == "POST":
             item.item_name = request.form.get("item_name", "").strip()
@@ -1548,6 +1561,7 @@ def create_app():
                     sub_categories=sub_categories,
                     platforms=platforms,
                     source_locations=source_locations,
+                    return_to=return_to,
                 )
 
             files = request.files.getlist("photos")
@@ -1580,7 +1594,7 @@ def create_app():
 
             db.session.commit()
             flash(f"Updated SKU #{item.sku}.", "success")
-            return redirect(url_for("item_detail", sku=item.sku))
+            return redirect(return_to)
 
         categories = get_distinct_values(Item, Item.category)
         sub_categories = get_distinct_values(Item, Item.sub_category)
@@ -1593,6 +1607,7 @@ def create_app():
             sub_categories=sub_categories,
             platforms=platforms,
             source_locations=source_locations,
+            return_to=return_to,
         )
 
     @app.route("/image/<int:image_id>/delete", methods=["POST"])
@@ -1600,6 +1615,8 @@ def create_app():
     def delete_image(image_id: int):
         img = ItemImage.query.get_or_404(image_id)
         sku = img.item_sku
+        raw_return_to = request.form.get("return_to")
+        return_to = _safe_return_url(raw_return_to) if raw_return_to else url_for("index")
 
         path = os.path.join(app.config["UPLOAD_FOLDER"], img.filename)
         try:
@@ -1611,12 +1628,13 @@ def create_app():
         db.session.delete(img)
         db.session.commit()
         flash("Image deleted.", "success")
-        return redirect(url_for("item_detail", sku=sku))
+        return redirect(url_for("item_detail", sku=sku, return_to=return_to))
 
     @app.route("/item/<int:sku>/delete", methods=["POST"])
     @auth_required
     def item_delete(sku: int):
         item = Item.query.get_or_404(sku)
+        return_to = _safe_return_url(request.form.get("return_to"))
 
         for img in item.images:
             path = os.path.join(app.config["UPLOAD_FOLDER"], img.filename)
@@ -1629,7 +1647,7 @@ def create_app():
         db.session.delete(item)
         db.session.commit()
         flash(f"Deleted SKU #{sku}.", "success")
-        return redirect(url_for("index"))
+        return redirect(return_to)
     
 
     return app

@@ -3,127 +3,119 @@
 
 {% block content %}
   {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-      <div>
-        <h2 style="margin:0;">SKU {{ item.sku }} — {{ item.item_name }}</h2>
-        <div class="small" style="margin-top:6px;">
-          {% if item.sold %}
-            <strong>Sold</strong>
-          {% else %}
-            <strong>Not Sold</strong>
-          {% endif %}
-          {% if item.platform %} • {{ item.platform }}{% endif %}
-          {% if item.category %} • {{ item.category }}{% endif %}
-          {% if item.sub_category %} • {{ item.sub_category }}{% endif %}
-        </div>
-      </div>
+  {% set hero_image = item.images[0] if item.images else none %}
+  {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
 
-      <div style="display:flex; gap:10px; align-items:center;">
-        {% if ebay_url %}
-          <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+  <div class="item-page-actions">
+    <a class="btn secondary" href="{{ return_to }}">← Back</a>
+    {% if ebay_url %}
+      <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+    {% endif %}
+    <a class="btn" href="{{ url_for('item_edit', sku=item.sku, return_to=return_to) }}">Edit</a>
+    <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}"
+          onsubmit="return confirm('Delete SKU {{ item.sku }}? This removes the item and its photos.');">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <button class="btn secondary" type="submit">Delete</button>
+    </form>
+  </div>
+
+  <section class="card item-hero">
+    <div class="item-hero-photo">
+      {% if hero_image %}
+        <a href="{{ url_for('uploaded_file', filename=hero_image.filename) }}" target="_blank" rel="noopener">
+          <img src="{{ url_for('uploaded_file', filename=hero_image.filename) }}" alt="{{ item.item_name }}">
+        </a>
+      {% else %}
+        <span>No photo yet</span>
+      {% endif %}
+    </div>
+
+    <div class="item-hero-info">
+      <div class="item-card-top">
+        <span class="small">SKU {{ item.sku }}</span>
+        {% if needs_sold_review %}
+          <span class="pill review">Sold Review</span>
+        {% elif item.sold %}
+          <span class="pill sold">Sold</span>
+        {% elif item.ebay_item_number %}
+          <span class="pill listed">Listed</span>
+        {% else %}
+          <span class="pill not-listed">Not Listed</span>
         {% endif %}
-        <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
-
-        <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}"
-              onsubmit="return confirm('Delete SKU {{ item.sku }}? This removes the item and its photos.');">
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-          <button class="btn" type="submit">Delete</button>
-        </form>
       </div>
-</div>
-<p><strong>Source Location:</strong> {{ item.source_location or '-' }}</p>
 
-    <div class="card" style="margin-top:12px;">
-      <h3 style="margin:0 0 8px 0;">eBay Listing Photo</h3>
+      <h1 style="margin:8px 0 10px 0;">{{ item.item_name }}</h1>
+
+      <div class="meta-row">
+        {% if item.platform %}<span>{{ item.platform }}</span>{% endif %}
+        {% if item.category %}<span>{{ item.category }}</span>{% endif %}
+        {% if item.sub_category %}<span>{{ item.sub_category }}</span>{% endif %}
+        {% if item.source_location %}<span>{{ item.source_location }}</span>{% endif %}
+        {% if item.barcode %}<span>UPC {{ item.barcode }}</span>{% endif %}
+      </div>
+
+      <div class="item-money-grid">
+        <div><label>Sale Price</label><strong>{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}—{% endif %}</strong></div>
+        <div><label>Buyer Paid Before Tax</label><strong>{% if item.buyer_paid_amount is not none %}${{ "%.2f"|format(item.buyer_paid_amount) }}{% else %}—{% endif %}</strong></div>
+        <div><label>COG</label><strong>{% if item.cog is not none %}${{ "%.2f"|format(item.cog) }}{% else %}—{% endif %}</strong></div>
+        <div><label>Profit</label><strong>${{ "%.2f"|format(item.profit) }}</strong></div>
+      </div>
+
+      {% if needs_sold_review %}
+        <div class="flash warning" style="margin-top:12px;">
+          This sold item still needs cleanup: COG, actual shipping, ad fee, eBay fee, or buyer-paid amount.
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="grid" style="margin-top:14px;">
+    <section class="card">
+      <h3 style="margin-top:0;">Sale Details</h3>
+      <div class="detail-grid">
+        <div><label>Actual Shipping Cost</label><div>{% if item.shipping is not none %}${{ "%.2f"|format(item.shipping) }}{% else %}—{% endif %}</div></div>
+        <div><label>Ad Fee</label><div>{% if item.ad_fee is not none %}${{ "%.2f"|format(item.ad_fee) }}{% else %}—{% endif %}</div></div>
+        <div><label>eBay Fee</label><div>{% if item.ebay_fee is not none %}${{ "%.2f"|format(item.ebay_fee) }}{% else %}—{% endif %}</div></div>
+        <div><label>Date Listed</label><div>{{ item.date_listed or "—" }}</div></div>
+        <div><label>Date Sold</label><div>{{ item.date_sold or "—" }}</div></div>
+        <div><label>eBay Item #</label><div>{{ item.ebay_item_number or "—" }}</div></div>
+        <div><label>eBay Order #</label><div>{{ item.ebay_order_number or "—" }}</div></div>
+        <div><label>Custom Label</label><div>{{ item.ebay_custom_label or "—" }}</div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin-top:0;">eBay Listing Photo</h3>
       <form method="post" action="{{ url_for('fetch_ebay_photo', sku=item.sku) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
         <label>eBay Item URL or Image URL</label>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
-          <input
-            type="url"
-            name="ebay_item_url"
-            value="{{ item.ebay_item_url or '' }}"
-            placeholder="https://www.ebay.com/itm/... or https://i.ebayimg.com/images/..."
-            style="flex:1; min-width:260px;"
-          >
+        <input
+          type="url"
+          name="ebay_item_url"
+          value="{{ item.ebay_item_url or '' }}"
+          placeholder="https://www.ebay.com/itm/... or https://i.ebayimg.com/images/..."
+        >
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
           <button class="btn secondary" type="submit">Fetch Main Photo</button>
         </div>
         <div class="small" style="margin-top:8px;">
-          Pulls the page's main eBay image and saves it as a normal item photo. If eBay blocks the listing page, copy the photo's image address and paste that here instead.
+          eBay may block listing-page fetches; regular photo upload is still the reliable path.
         </div>
       </form>
-    </div>
-
-    <hr style="border:none; border-top:1px solid var(--border); margin:14px 0;">
-
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
-      <div>
-        <label>COG</label>
-        <div>{{ item.cog if item.cog is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Sale Price</label>
-        <div>{{ item.sale_price if item.sale_price is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Buyer Paid Amount (before tax)</label>
-        <div>{{ item.buyer_paid_amount if item.buyer_paid_amount is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Ad Fee</label>
-        <div>{{ item.ad_fee if item.ad_fee is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>eBay Fee</label>
-        <div>{{ item.ebay_fee if item.ebay_fee is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Actual Shipping Cost</label>
-        <div>{{ item.shipping if item.shipping is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Date Listed</label>
-        <div>{{ item.date_listed if item.date_listed is not none else "" }}</div>
-      </div>
-
-      <div>
-        <label>Date Sold</label>
-        <div>{{ item.date_sold if item.date_sold is not none else "" }}</div>
-      </div>
-    </div>
-
-<div>
-      <div class="small">Profit</div>
-      <div style="font-size:22px; font-weight:800;">
-        ${{ "%.2f"|format(item.profit) }}
-      </div>
-      <div class="small">
-        {% if item.sold %}
-          Sold
-        {% else %}
-          Not sold yet (profit is estimated if Buyer Paid is filled)
-        {% endif %}
-      </div>
-    </div>
+    </section>
   </div>
-</div>
 
-    {% if item.notes %}
-      <div style="margin-top:12px;">
-        <label>Notes</label>
-        <div style="white-space:pre-wrap;">{{ item.notes }}</div>
-      </div>
-    {% endif %}
+  {% if item.notes %}
+    <section class="card" style="margin-top:14px;">
+      <h3 style="margin-top:0;">Notes</h3>
+      <div style="white-space:pre-wrap;">{{ item.notes }}</div>
+    </section>
+  {% endif %}
 
-    <h3 style="margin-top:18px; margin-bottom:6px;">Photos</h3>
-
+  <section class="card" style="margin-top:14px;">
+    <h3 style="margin-top:0;">Photos</h3>
     <div class="photo-grid">
       {% for img in item.images %}
         <div>
@@ -135,6 +127,7 @@
                 style="margin-top:6px;"
                 onsubmit="return confirm('Delete this photo?');">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="return_to" value="{{ return_to }}">
             <button class="btn secondary" type="submit" style="padding:6px 10px;">Delete</button>
           </form>
         </div>
@@ -142,5 +135,5 @@
         <div class="small">No photos yet.</div>
       {% endfor %}
     </div>
-  </div>
+  </section>
 {% endblock %}

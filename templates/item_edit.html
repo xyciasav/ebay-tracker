@@ -10,6 +10,7 @@
   <h3 style="margin-top:0;">Edit SKU #{{ item.sku }}</h3>
   <form method="post" enctype="multipart/form-data">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
       <div style="flex:1; min-width:220px;">
         <label>Item Name *</label>
@@ -301,7 +302,7 @@
 
     <div style="margin-top:14px; display:flex; gap:10px;">
       <button class="btn" type="submit">Save</button>
-      <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku) }}">Cancel</a>
+      <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku, return_to=return_to) }}">Cancel</a>
     </div>
   </form>
 </div>
