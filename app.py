@@ -13,6 +13,12 @@ from flask_httpauth import HTTPBasicAuth
 from functools import wraps
 import csv
 import io, re
+import html
+import socket
+import uuid
+import urllib.request
+import urllib.parse
+import urllib.error
 from difflib import SequenceMatcher
 
 
@@ -99,6 +105,105 @@ def process_image(path: str, max_size: int = 1600):
         return False
 
     return True
+
+
+def _normalize_url(value: str):
+    value = (value or "").strip()
+    if not value:
+        return None
+    parsed = urllib.parse.urlparse(value)
+    if not parsed.scheme:
+        value = f"https://{value}"
+        parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return urllib.parse.urlunparse(parsed)
+
+
+def _host_allowed_for_ebay_page(url: str) -> bool:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host == "ebay.com" or host.endswith(".ebay.com")
+
+
+def _host_is_private_or_local(url: str) -> bool:
+    try:
+        host = urllib.parse.urlparse(url).hostname
+        if not host:
+            return True
+        infos = socket.getaddrinfo(host, None)
+        import ipaddress
+        for info in infos:
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True
+    except Exception:
+        return True
+    return False
+
+
+def _fetch_url_bytes(url: str, max_bytes: int, timeout: int = 12):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; eBayTracker/1.0)",
+            "Accept": "text/html,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("Downloaded file is too large.")
+        return data, resp.headers.get("Content-Type", "")
+
+
+def _extract_og_image(html_text: str):
+    patterns = [
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html_text, flags=re.IGNORECASE)
+        if match:
+            return html.unescape(match.group(1).strip())
+    return None
+
+
+def _save_image_from_url(item: Item, image_url: str, upload_folder: str):
+    image_url = _normalize_url(image_url)
+    if not image_url or _host_is_private_or_local(image_url):
+        raise ValueError("The image URL is not allowed.")
+
+    data, content_type = _fetch_url_bytes(image_url, max_bytes=10 * 1024 * 1024)
+    ext = "jpg"
+    lowered = content_type.lower()
+    if "png" in lowered:
+        ext = "png"
+    elif "webp" in lowered:
+        ext = "webp"
+    elif "jpeg" in lowered or "jpg" in lowered:
+        ext = "jpg"
+    else:
+        path_ext = Path(urllib.parse.urlparse(image_url).path).suffix.lower().lstrip(".")
+        if path_ext in ALLOWED_EXTENSIONS:
+            ext = "jpg" if path_ext == "jpeg" else path_ext
+
+    stored_name = f"SKU{item.sku}_ebay_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex[:8]}.{ext}"
+    save_path = os.path.join(upload_folder, stored_name)
+    with open(save_path, "wb") as out:
+        out.write(data)
+
+    if not process_image(save_path):
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        raise ValueError("eBay image was downloaded, but it was not a valid image.")
+
+    db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
+    return stored_name
 
 
 def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
@@ -239,6 +344,8 @@ def create_app():
                 _sqlite_add_column("items", "ebay_order_number", "VARCHAR(64)")
             if not _sqlite_column_exists("items", "ebay_custom_label"):
                 _sqlite_add_column("items", "ebay_custom_label", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "ebay_item_url"):
+                _sqlite_add_column("items", "ebay_item_url", "VARCHAR(600)")
             if not _sqlite_column_exists("items", "ebay_category"):
                 _sqlite_add_column("items", "ebay_category", "VARCHAR(160)")
             if not _sqlite_column_exists("items", "ebay_condition"):
@@ -339,6 +446,7 @@ def create_app():
             "ebay_item_number",
             "ebay_order_number",
             "ebay_custom_label",
+            "ebay_item_url",
             "ebay_category",
             "ebay_condition",
             "barcode",
@@ -372,6 +480,7 @@ def create_app():
                 it.ebay_item_number or "",
                 it.ebay_order_number or "",
                 it.ebay_custom_label or "",
+                it.ebay_item_url or "",
                 it.ebay_category or "",
                 it.ebay_condition or "",
                 it.barcode or "",
@@ -574,6 +683,7 @@ def create_app():
                 item.date_listed = date_listed
             if ebay_item_number:
                 item.ebay_item_number = ebay_item_number
+                item.ebay_item_url = item.ebay_item_url or f"https://www.ebay.com/itm/{ebay_item_number}"
             if custom_sku:
                 item.ebay_custom_label = custom_sku
             if category:
@@ -829,6 +939,7 @@ def create_app():
                 (Item.ebay_item_number.ilike(like)) |
                 (Item.ebay_order_number.ilike(like)) |
                 (Item.ebay_custom_label.ilike(like)) |
+                (Item.ebay_item_url.ilike(like)) |
                 (Item.ebay_category.ilike(like)) |
                 (Item.ebay_condition.ilike(like))
             )
@@ -1216,6 +1327,7 @@ def create_app():
                 notes=request.form.get("notes", "").strip() or None,
                 source_location=request.form.get("source_location", "").strip() or None,
                 barcode=request.form.get("barcode", "").strip() or None,
+                ebay_item_url=_normalize_url(request.form.get("ebay_item_url", "")),
                 cog=parse_float(request.form.get("cog")),
                 sale_price=parse_float(request.form.get("sale_price")),
                 ad_fee=parse_float(request.form.get("ad_fee")),
@@ -1298,6 +1410,50 @@ def create_app():
         item = Item.query.get_or_404(sku)
         return render_template("item_detail.html", item=item)
 
+    @app.route("/item/<int:sku>/fetch-ebay-photo", methods=["POST"])
+    @auth_required
+    def fetch_ebay_photo(sku: int):
+        item = Item.query.get_or_404(sku)
+        url = _normalize_url(request.form.get("ebay_item_url", "") or item.ebay_item_url or "")
+
+        if not url:
+            flash("Paste an eBay item URL first.", "error")
+            return redirect(url_for("item_detail", sku=item.sku))
+
+        if not _host_allowed_for_ebay_page(url):
+            flash("For safety, photo fetch only accepts eBay item URLs.", "error")
+            return redirect(url_for("item_detail", sku=item.sku))
+
+        if _host_is_private_or_local(url):
+            flash("That URL could not be fetched safely.", "error")
+            return redirect(url_for("item_detail", sku=item.sku))
+
+        if len(item.images or []) >= app.config["MAX_PHOTOS_PER_ITEM"]:
+            flash(f"This item already has the maximum of {app.config['MAX_PHOTOS_PER_ITEM']} photos.", "warning")
+            return redirect(url_for("item_detail", sku=item.sku))
+
+        try:
+            page_bytes, content_type = _fetch_url_bytes(url, max_bytes=2 * 1024 * 1024)
+            page_text = page_bytes.decode("utf-8", errors="replace")
+            image_url = _extract_og_image(page_text)
+            if not image_url:
+                flash("Could not find a main photo on that eBay page.", "warning")
+                return redirect(url_for("item_detail", sku=item.sku))
+
+            image_url = urllib.parse.urljoin(url, image_url)
+            _save_image_from_url(item, image_url, app.config["UPLOAD_FOLDER"])
+            item.ebay_item_url = url
+            db.session.commit()
+            flash("Fetched the main eBay photo and added it to this item.", "success")
+        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+            db.session.rollback()
+            flash(f"Could not fetch the eBay photo: {e}", "error")
+        except Exception as e:
+            db.session.rollback()
+            flash("Could not fetch the eBay photo. eBay may have blocked the request or changed the page.", "error")
+
+        return redirect(url_for("item_detail", sku=item.sku))
+
     @app.route("/item/<int:sku>/edit", methods=["GET", "POST"])
     @auth_required
     def item_edit(sku: int):
@@ -1311,6 +1467,7 @@ def create_app():
             item.notes = request.form.get("notes", "").strip() or None
             item.source_location = request.form.get("source_location", "").strip() or None
             item.barcode = request.form.get("barcode", "").strip() or None
+            item.ebay_item_url = _normalize_url(request.form.get("ebay_item_url", ""))
 
             item.cog = parse_float(request.form.get("cog"))
             item.sale_price = parse_float(request.form.get("sale_price"))

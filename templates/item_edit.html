@@ -179,6 +179,17 @@
       </div>
     </div>
 
+    <div style="margin-top:10px;">
+      <label>eBay Item URL</label>
+      <input
+        type="url"
+        name="ebay_item_url"
+        value="{{ item.ebay_item_url or '' }}"
+        placeholder="https://www.ebay.com/itm/..."
+      >
+      <div class="small">Save this URL, then use “Fetch Main Photo” from the item detail page.</div>
+    </div>
+
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;">
         <label>Category</label>

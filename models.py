@@ -26,6 +26,7 @@ class Item(db.Model):
     ebay_item_number = db.Column(db.String(32), nullable=True)
     ebay_order_number = db.Column(db.String(64), nullable=True)
     ebay_custom_label = db.Column(db.String(120), nullable=True)
+    ebay_item_url = db.Column(db.String(600), nullable=True)
     ebay_category = db.Column(db.String(160), nullable=True)
     ebay_condition = db.Column(db.String(120), nullable=True)
 
