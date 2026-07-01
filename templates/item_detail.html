@@ -2,7 +2,7 @@
 {% block title %}SKU {{ item.sku }} — eBay Tracker{% endblock %}
 
 {% block content %}
-  {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
+  {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
   <div class="card">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
       <div>

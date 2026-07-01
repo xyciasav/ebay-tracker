@@ -93,7 +93,7 @@
       <tbody>
         {% for item in items %}
           {% set is_listed = item.ebay_item_number %}
-          {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
+          {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
           {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
           <tr>
             <td>{{ item.sku }}</td>
@@ -136,7 +136,7 @@
   <div class="inventory-grid">
     {% for item in items %}
       {% set is_listed = item.ebay_item_number %}
-      {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
+      {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
       {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
       {% set image = item.images[0] if item.images else none %}
       <article class="item-card">
