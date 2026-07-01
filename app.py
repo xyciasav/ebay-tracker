@@ -797,9 +797,8 @@ def create_app():
 
         query = Item.query
         listed_expr = (
-            (Item.ebay_item_number.isnot(None)) |
-            (Item.date_listed.isnot(None)) |
-            (Item.platform == "eBay")
+            (Item.ebay_item_number.isnot(None)) &
+            (Item.ebay_item_number != "")
         )
 
         if status_filter == "sold":

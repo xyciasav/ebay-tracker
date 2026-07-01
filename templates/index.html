@@ -89,7 +89,7 @@
 
       <tbody>
         {% for item in items %}
-          {% set is_listed = item.ebay_item_number or item.date_listed or item.platform == "eBay" %}
+          {% set is_listed = item.ebay_item_number %}
           <tr>
             <td>{{ item.sku }}</td>
             <td>
@@ -121,7 +121,7 @@
 {% else %}
   <div class="inventory-grid">
     {% for item in items %}
-      {% set is_listed = item.ebay_item_number or item.date_listed or item.platform == "eBay" %}
+      {% set is_listed = item.ebay_item_number %}
       {% set image = item.images[0] if item.images else none %}
       <article class="item-card">
         <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku) }}">
