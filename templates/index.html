@@ -93,6 +93,7 @@
       <tbody>
         {% for item in items %}
           {% set is_listed = item.ebay_item_number %}
+          {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
           {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
           <tr>
             <td>{{ item.sku }}</td>
@@ -118,7 +119,14 @@
             </td>
             <td>{% if item.sale_price is not none %}${{ '%.2f'|format(item.sale_price) }}{% endif %}</td>
             <td>{% if item.cog is not none %}${{ '%.2f'|format(item.cog) }}{% endif %}</td>
-            <td><a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a></td>
+            <td>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                {% if ebay_url %}
+                  <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
+                {% endif %}
+                <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
+              </div>
+            </td>
           </tr>
         {% endfor %}
       </tbody>
@@ -128,6 +136,7 @@
   <div class="inventory-grid">
     {% for item in items %}
       {% set is_listed = item.ebay_item_number %}
+      {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
       {% set needs_sold_review = item.sold and (item.cog is none or item.shipping is none or item.ad_fee is none or item.ebay_fee is none or item.buyer_paid_amount is none) %}
       {% set image = item.images[0] if item.images else none %}
       <article class="item-card">
@@ -186,6 +195,9 @@
 
           <div class="card-actions">
             <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku) }}">Open</a>
+            {% if ebay_url %}
+              <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
+            {% endif %}
             <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
           </div>
         </div>

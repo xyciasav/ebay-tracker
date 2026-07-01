@@ -2,6 +2,7 @@
 {% block title %}SKU {{ item.sku }} — eBay Tracker{% endblock %}
 
 {% block content %}
+  {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
   <div class="card">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
       <div>
@@ -19,6 +20,9 @@
       </div>
 
       <div style="display:flex; gap:10px; align-items:center;">
+        {% if ebay_url %}
+          <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+        {% endif %}
         <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku) }}">Edit</a>
 
         <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}"

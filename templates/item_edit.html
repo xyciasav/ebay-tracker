@@ -181,13 +181,19 @@
 
     <div style="margin-top:10px;">
       <label>eBay Item URL</label>
+      {% set ebay_url = item.ebay_item_url or ('https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number else '') %}
       <input
         type="url"
         name="ebay_item_url"
         value="{{ item.ebay_item_url or '' }}"
         placeholder="https://www.ebay.com/itm/..."
       >
-      <div class="small">Save this URL, then use “Fetch Main Photo” from the item detail page.</div>
+      <div class="small">
+        Save this URL, then use “Fetch Main Photo” from the item detail page.
+        {% if ebay_url %}
+          <a href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+        {% endif %}
+      </div>
     </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
