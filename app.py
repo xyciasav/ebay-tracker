@@ -315,7 +315,28 @@ def _append_note_tag(item, tag: str):
 
 
 def _sold_review_expr():
-    return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False))
+    return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False)) & (Item.canceled.is_(False))
+
+
+def _is_canceled_order_row(row: dict) -> bool:
+    cancel_words = ("cancel", "cancelled", "canceled")
+    status_words = ("status", "cancel", "refund")
+
+    for key, value in (row or {}).items():
+        key_text = (key or "").strip().lower()
+        value_text = (value or "").strip().lower()
+        if not value_text:
+            continue
+
+        if any(word in key_text for word in status_words):
+            if any(phrase in value_text for phrase in ("not cancel", "not cancelled", "not canceled", "no cancel")):
+                continue
+            if any(word in value_text for word in cancel_words):
+                return True
+            if "cancel" in key_text and value_text not in {"no", "n", "false", "0", "--"}:
+                return True
+
+    return False
 
 
 def _safe_return_url(value: str):
@@ -428,6 +449,8 @@ def create_app():
                 _sqlite_add_column("items", "barcode", "VARCHAR(64)")
             if not _sqlite_column_exists("items", "sold_confirmed"):
                 _sqlite_add_column("items", "sold_confirmed", "BOOLEAN DEFAULT 0 NOT NULL")
+            if not _sqlite_column_exists("items", "canceled"):
+                _sqlite_add_column("items", "canceled", "BOOLEAN DEFAULT 0 NOT NULL")
             if not _sqlite_column_exists("items", "ebay_item_number"):
                 _sqlite_add_column("items", "ebay_item_number", "VARCHAR(32)")
             if not _sqlite_column_exists("items", "ebay_order_number"):
@@ -549,6 +572,7 @@ def create_app():
             "ebay_fee",
             "sold",
             "sold_confirmed",
+            "canceled",
             "date_listed",
             "date_sold",
             "notes",
@@ -584,6 +608,7 @@ def create_app():
                 it.ebay_fee if it.ebay_fee is not None else "",
                 "Y" if getattr(it, "sold", False) else "N",
                 "Y" if getattr(it, "sold_confirmed", False) else "N",
+                "Y" if getattr(it, "canceled", False) else "N",
                 it.date_listed.isoformat() if it.date_listed else "",
                 it.date_sold.isoformat() if it.date_sold else "",
                 (it.notes or "").replace("\r", " ").replace("\n", " ").strip(),
@@ -687,6 +712,7 @@ def create_app():
                 custom_sku = (r.get("Custom Label") or "").strip()
                 order_number = (r.get("Order Number") or "").strip()
                 quantity = parse_int(r.get("Quantity")) or 1
+                is_canceled_order = _is_canceled_order_row(r)
             else:
                 title = (r.get("Title") or "").strip()
                 ebay_item_number = (r.get("Item number") or "").strip()
@@ -695,6 +721,7 @@ def create_app():
                 custom_sku = (r.get("Custom label (SKU)") or "").strip()
                 order_number = ""
                 quantity = parse_int(r.get("Available quantity")) or 1
+                is_canceled_order = False
 
             if not title:
                 continue
@@ -732,12 +759,13 @@ def create_app():
                 "ebay_item_number": ebay_item_number,
                 "order_number": order_number,
                 "quantity": quantity,
+                "is_canceled_order": is_canceled_order,
                 "flagged": flagged,
                 "best_match_id": best[0] if best else None,
                 "best_match_title": best[1] if best else None,
                 "best_score": round(best_score, 3),
                 "match_reason": match_reason,
-                "default_action": "update" if flagged else "create",
+                "default_action": "update" if flagged else ("skip" if is_canceled_order else "create"),
             })
 
         if not rows:
@@ -817,6 +845,7 @@ def create_app():
                 ebay_item_number = (r.get("Item Number") or "").strip()
                 order_number = (r.get("Order Number") or "").strip()
                 custom_sku = (r.get("Custom Label") or "").strip()
+                is_canceled_order = _is_canceled_order_row(r)
                 price = parse_float(r.get("Sold For")) or 0.0
                 buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
                 total_price = parse_float(r.get("Total Price"))
@@ -837,6 +866,7 @@ def create_app():
                 ebay_item_number = (r.get("Item number") or "").strip()
                 order_number = ""
                 custom_sku = (r.get("Custom label (SKU)") or "").strip()
+                is_canceled_order = False
                 price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
                 buyer_paid_amount = None
                 buyer_shipping_paid = None
@@ -856,6 +886,10 @@ def create_app():
                 skipped += 1
                 continue
 
+            if report_kind == "orders" and is_canceled_order and decision == "create":
+                skipped += 1
+                continue
+
             if decision == "update":
                 match_id = request.form.get(f"matchid_{i}")
                 item = Item.query.get(int(match_id)) if match_id else None
@@ -872,6 +906,7 @@ def create_app():
             if decision == "create":
                 item.item_name = title
                 item.platform = "eBay"
+                item.canceled = False
                 if price:
                     item.sale_price = price
                 if date_listed:
@@ -899,23 +934,41 @@ def create_app():
                 changed = _set_if_missing(item, "ebay_condition", condition) or changed
 
             if report_kind == "orders":
-                if not item.sold:
-                    item.sold = True
-                    changed = True
-                changed = _set_if_missing(item, "date_sold", sale_date) or changed
-                changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
-                changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
-                if changed and item.sold_confirmed:
+                if is_canceled_order:
+                    if item.sold or item.sold_confirmed or not item.canceled:
+                        changed = True
+                    item.sold = False
                     item.sold_confirmed = False
-                if changed:
-                    _append_note_tag(item, f"eBayOrder:{order_number}")
-                    _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
-                    _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
-                    _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
-                    if ebay_collected_charges:
-                        _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
+                    item.canceled = True
+                    changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                    if changed:
+                        _append_note_tag(item, f"eBayCanceledOrder:{order_number}")
+                elif not item.sold:
+                    item.sold = True
+                    item.canceled = False
+                    changed = True
+                elif item.canceled:
+                    item.canceled = False
+                    changed = True
+
+                if not is_canceled_order:
+                    changed = _set_if_missing(item, "date_sold", sale_date) or changed
+                    changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
+                    changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                    if changed and item.sold_confirmed:
+                        item.sold_confirmed = False
+                    if changed:
+                        _append_note_tag(item, f"eBayOrder:{order_number}")
+                        _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
+                        _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
+                        _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
+                        if ebay_collected_charges:
+                            _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
             else:
                 item.sold = False if item.sold is None else item.sold
+                if item.canceled:
+                    item.canceled = False
+                    changed = True
 
             if decision == "update":
                 if changed:
@@ -1075,6 +1128,7 @@ def create_app():
                     item.sale_price = price
                 if date_listed:
                     item.date_listed = date_listed
+                item.canceled = False
 
                 # tuck custom SKU into notes (so you have it even before you add a real column)
                 if sku_raw:
@@ -1092,6 +1146,7 @@ def create_app():
                 sale_price=price if price else None,
                 date_listed=date_listed or None,
                 sold=False,  # adjust if your model uses boolean, etc.
+                canceled=False,
             )
 
             if sku_raw:
@@ -1132,13 +1187,15 @@ def create_app():
         )
 
         if status_filter == "sold":
-            query = query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True))
+            query = query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True), Item.canceled.is_(False))
         elif status_filter == "sold_review":
             query = query.filter(_sold_review_expr())
         elif status_filter == "not_listed":
-            query = query.filter(Item.sold.is_(False)).filter(~listed_expr)
+            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr)
         elif status_filter == "listed":
-            query = query.filter(Item.sold.is_(False)).filter(listed_expr)
+            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr)
+        elif status_filter == "canceled":
+            query = query.filter(Item.canceled.is_(True))
         else:
             status_filter = "all"
 
@@ -1173,10 +1230,11 @@ def create_app():
         source_locations = get_distinct_values(Item, Item.source_location)
         status_counts = {
             "all": Item.query.count(),
-            "not_listed": Item.query.filter(Item.sold.is_(False)).filter(~listed_expr).count(),
-            "listed": Item.query.filter(Item.sold.is_(False)).filter(listed_expr).count(),
+            "not_listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr).count(),
+            "listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr).count(),
             "sold_review": Item.query.filter(_sold_review_expr()).count(),
-            "sold": Item.query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True)).count(),
+            "sold": Item.query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True), Item.canceled.is_(False)).count(),
+            "canceled": Item.query.filter(Item.canceled.is_(True)).count(),
         }
 
         return render_template(
@@ -1260,7 +1318,7 @@ def create_app():
 
         category_col = func.coalesce(Item.category, "Uncategorized")
         source_col = func.coalesce(Item.source_location, "Unknown")
-        confirmed_sold_expr = (Item.sold.is_(True)) & (Item.sold_confirmed.is_(True))
+        confirmed_sold_expr = (Item.sold.is_(True)) & (Item.sold_confirmed.is_(True)) & (Item.canceled.is_(False))
 
         total_items = Item.query.count()
 
@@ -1292,13 +1350,13 @@ def create_app():
 
         # By Category (existing)
         sold_count_all = func.sum(case((confirmed_sold_expr, 1), else_=0))
-        unsold_count = func.sum(case((Item.sold.is_(False), 1), else_=0))
+        unsold_count = func.sum(case(((Item.sold.is_(False)) & (Item.canceled.is_(False)), 1), else_=0))
         total_count = func.count(Item.sku)
 
         avg_days_listed_unsold = func.avg(
             case(
                 (
-                    (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
+                    (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.date_listed.isnot(None)),
                     func.julianday(func.current_date()) - func.julianday(Item.date_listed),
                 ),
                 else_=None,
@@ -1373,7 +1431,7 @@ def create_app():
 
         # By Source Location (NEW)
         sold_count_src = func.sum(case((confirmed_sold_expr, 1), else_=0))
-        unsold_count_src = func.sum(case((Item.sold.is_(False), 1), else_=0))
+        unsold_count_src = func.sum(case(((Item.sold.is_(False)) & (Item.canceled.is_(False)), 1), else_=0))
         total_count_src = func.count(Item.sku)
 
         sold_profit_src = func.coalesce(func.sum(case((confirmed_sold_expr, profit_expr), else_=0.0)), 0.0)
@@ -1383,7 +1441,7 @@ def create_app():
         avg_days_listed_unsold_src = func.avg(
             case(
                 (
-                    (Item.sold.is_(False)) & (Item.date_listed.isnot(None)),
+                    (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.date_listed.isnot(None)),
                     func.julianday(func.current_date()) - func.julianday(Item.date_listed),
                 ),
                 else_=None,
@@ -1392,7 +1450,7 @@ def create_app():
 
         avg_cog_unsold_src = func.avg(
             case(
-                ((Item.sold.is_(False)) & (Item.cog.isnot(None)), Item.cog),
+                ((Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.cog.isnot(None)), Item.cog),
                 else_=None,
             )
         )
@@ -1696,6 +1754,7 @@ def create_app():
         return_to = _safe_return_url(request.form.get("return_to"))
         item.sold = True
         item.sold_confirmed = True
+        item.canceled = False
         db.session.commit()
         flash(f"Confirmed SKU #{item.sku} as sold.", "success")
         return redirect(return_to)
@@ -1727,8 +1786,14 @@ def create_app():
             item.date_listed = parse_date(request.form.get("date_listed"))
             item.date_sold = parse_date(request.form.get("date_sold"))
             item.sold = (request.form.get("sold") == "Y")
-            if not item.sold:
+            item.canceled = (request.form.get("canceled") == "Y")
+            if item.canceled:
+                item.sold = False
                 item.sold_confirmed = False
+            elif not item.sold:
+                item.sold_confirmed = False
+            else:
+                item.canceled = False
 
             if not item.item_name:
                 flash("Item Name is required.", "error")

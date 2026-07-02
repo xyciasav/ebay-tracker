@@ -182,7 +182,7 @@
 
     <div style="margin-top:10px;">
       <label>eBay Item URL</label>
-      {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
+      {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold and not item.canceled else '' %}
       <input
         type="url"
         name="ebay_item_url"
@@ -253,6 +253,13 @@
         <select name="sold">
           <option value="N" {% if not item.sold %}selected{% endif %}>N</option>
           <option value="Y" {% if item.sold %}selected{% endif %}>Y</option>
+        </select>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Canceled (Y/N)</label>
+        <select name="canceled">
+          <option value="N" {% if not item.canceled %}selected{% endif %}>N</option>
+          <option value="Y" {% if item.canceled %}selected{% endif %}>Y</option>
         </select>
       </div>
     </div>

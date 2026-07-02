@@ -2,9 +2,9 @@
 {% block title %}SKU {{ item.sku }} — eBay Tracker{% endblock %}
 
 {% block content %}
-  {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold else '' %}
+  {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold and not item.canceled else '' %}
   {% set hero_image = item.images[0] if item.images else none %}
-  {% set needs_sold_review = item.sold and not item.sold_confirmed %}
+  {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled %}
 
   <div class="item-page-actions">
     <a class="btn secondary" href="{{ return_to }}">← Back</a>
@@ -41,7 +41,9 @@
     <div class="item-hero-info">
       <div class="item-card-top">
         <span class="small">SKU {{ item.sku }}</span>
-        {% if needs_sold_review %}
+        {% if item.canceled %}
+          <span class="pill canceled">Canceled</span>
+        {% elif needs_sold_review %}
           <span class="pill review">Sold Review</span>
         {% elif item.sold %}
           <span class="pill sold">Sold</span>
@@ -72,6 +74,10 @@
       {% if needs_sold_review %}
         <div class="flash warning" style="margin-top:12px;">
           Review COG, actual shipping, ad fee, eBay fee, and buyer-paid amount. Click Confirm Sold when this item is final.
+        </div>
+      {% elif item.canceled %}
+        <div class="flash warning" style="margin-top:12px;">
+          This order was imported as canceled. It is not counted as sold.
         </div>
       {% endif %}
     </div>

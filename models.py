@@ -41,6 +41,7 @@ class Item(db.Model):
     date_sold = db.Column(db.Date, nullable=True)
     sold = db.Column(db.Boolean, default=False, nullable=False)
     sold_confirmed = db.Column(db.Boolean, default=False, nullable=False)
+    canceled = db.Column(db.Boolean, default=False, nullable=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

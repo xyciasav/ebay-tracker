@@ -82,11 +82,11 @@
               <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}">
                 {% if r.flagged %}
                   <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
-                  {% if report_kind != "expenses" %}<option value="create">Create</option>{% endif %}
+                  {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
                   <option value="skip">Skip</option>
                 {% else %}
-                  {% if report_kind != "expenses" %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
-                  <option value="skip">Skip</option>
+                  {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
+                  <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% endif %}
               </select>
               <input type="hidden" name="matchid_{{ r.row_idx }}" value="{{ r.best_match_id or '' }}" />
@@ -98,6 +98,9 @@
             {% else %}
               <td>
                 {{ r.title }}
+                {% if r.is_canceled_order %}
+                  <div class="small"><span class="pill canceled">Canceled order</span></div>
+                {% endif %}
                 {% if report_kind == "orders" and r.order_number %}
                   <div class="small">Order {{ r.order_number }}</div>
                 {% endif %}
