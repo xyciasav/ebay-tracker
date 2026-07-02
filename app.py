@@ -1164,6 +1164,44 @@ def create_app():
     def scanner_tool():
         return render_template("scanner_tool.html")
 
+    @app.post("/tools/scanner/quick-create")
+    @auth_required
+    def scanner_quick_create():
+        barcode = request.form.get("barcode", "").strip()
+        title = request.form.get("draft_title", "").strip() or barcode
+        source_location = request.form.get("source_location", "").strip() or None
+        cog = parse_float(request.form.get("cog"))
+        sale_price = parse_float(request.form.get("sale_price"))
+        shipping = parse_float(request.form.get("shipping"))
+
+        if not title:
+            flash("Scan a barcode or type a rough title first.", "error")
+            return redirect(url_for("scanner_tool"))
+
+        notes = [
+            "ScannerDraft:yes",
+            f"ScannerSearch:{title}",
+        ]
+        if barcode:
+            notes.append(f"ScannerBarcode:{barcode}")
+        notes.append("Created from fast mobile scanner. Rename/merge after final eBay listing if needed.")
+
+        item = Item(
+            item_name=title,
+            platform="eBay",
+            barcode=barcode or None,
+            source_location=source_location,
+            cog=cog,
+            sale_price=sale_price,
+            shipping=shipping,
+            sold=False,
+            notes="\n".join(notes),
+        )
+        db.session.add(item)
+        db.session.commit()
+        flash(f"Quick draft created: SKU #{item.sku}.", "success")
+        return redirect(url_for("scanner_tool", created=item.sku))
+
 
     @app.route("/uploads/items/<path:filename>")
     @auth_required

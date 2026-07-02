@@ -13,6 +13,8 @@
   .scanner-hero h1{ margin:0; font-size:clamp(28px, 8vw, 44px); letter-spacing:-.04em; }
   .scanner-actions{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
   .scanner-actions .btn{ width:100%; justify-content:center; padding:13px 14px; }
+  .fast-actions{ display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:10px; margin-top:12px; }
+  .fast-actions .btn{ width:100%; justify-content:center; padding:14px; }
   .mobile-panel{ padding:14px; }
   .scan-field{ display:flex; gap:8px; align-items:end; }
   .scan-field input{ font-size:20px; padding:13px 12px; }
@@ -32,9 +34,16 @@
   }
   .hint-list{ margin:8px 0 0 0; padding-left:18px; color:var(--muted); }
   .hint-list li{ margin:4px 0; }
+  .quick-details{ border:1px solid var(--border2); border-radius:14px; background:var(--card); overflow:hidden; }
+  .quick-details summary{ cursor:pointer; padding:14px; font-weight:800; list-style:none; }
+  .quick-details summary::-webkit-details-marker{ display:none; }
+  .quick-details summary::after{ content:"+"; float:right; color:var(--muted); }
+  .quick-details[open] summary::after{ content:"–"; }
+  .quick-details-body{ padding:0 14px 14px; }
   @media (max-width:680px){
     .scanner-shell{ margin:0; }
     .scanner-actions,
+    .fast-actions,
     .draft-grid,
     .quick-card-row{ grid-template-columns:1fr; }
     .scan-field{ display:block; }
@@ -56,16 +65,20 @@
       </div>
     </div>
 
-    <div class="scanner-actions">
+    <div class="fast-actions">
       <button type="button" class="btn" id="btnScanBarcode">Scan Barcode</button>
       <button type="button" class="btn secondary" id="btnOpenSold">Open Sold Comps</button>
+      <button type="submit" form="quickDraftForm" class="btn secondary">Save Draft</button>
     </div>
   </section>
+
+  <form id="quickDraftForm" method="post" action="{{ url_for('scanner_quick_create') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
   <section class="card mobile-panel">
     <label>Barcode / UPC</label>
     <div class="scan-field">
-      <input id="barcode" type="text" placeholder="Scan or type barcode" inputmode="numeric" autocomplete="off">
+      <input id="barcode" name="barcode" type="text" placeholder="Scan or type barcode" inputmode="numeric" autocomplete="off">
       <button type="button" class="btn secondary" id="btnCloseBarcode" style="display:none;">Close Camera</button>
     </div>
     <div class="small" id="barcodeStatus" style="margin-top:6px;"></div>
@@ -82,17 +95,17 @@
     <h3 style="margin-top:0;">Lookup</h3>
     <div class="draft-grid">
       <div class="wide">
-        <label>Search / draft title</label>
-        <input id="draftTitle" type="text" placeholder="e.g. anime t-shirt, board game, Nike hoodie">
-        <div class="small">This can be rough. Later eBay/import can use the final title, and you can merge duplicates if needed.</div>
+        <label>Rough title / search</label>
+        <input id="draftTitle" name="draft_title" type="text" placeholder="anime t-shirt, board game, Nike hoodie">
+        <div class="small">Rough is fine. Save fast now, rename or merge after the real eBay listing.</div>
       </div>
       <div>
         <label>Source</label>
-        <input id="sourceLocation" type="text" placeholder="Goodwill, Ross, bins...">
+        <input id="sourceLocation" name="source_location" type="text" placeholder="Goodwill, Ross, bins...">
       </div>
       <div>
         <label>Your cost</label>
-        <input id="cogInput" type="number" step="0.01" placeholder="4.99">
+        <input id="cogInput" name="cog" type="number" step="0.01" placeholder="4.99">
       </div>
     </div>
     <div class="scanner-actions">
@@ -101,12 +114,13 @@
     </div>
   </section>
 
-  <section class="card mobile-panel">
-    <h3 style="margin-top:0;">Quick Estimate</h3>
+  <details class="quick-details">
+    <summary>Quick math / optional estimate</summary>
+    <div class="quick-details-body">
     <div class="draft-grid">
       <div>
         <label>Avg sold price</label>
-        <input id="avgSoldPrice" type="number" step="0.01" placeholder="29.99">
+        <input id="avgSoldPrice" name="sale_price" type="number" step="0.01" placeholder="29.99">
       </div>
       <div>
         <label>Shipping preset</label>
@@ -119,7 +133,7 @@
       </div>
       <div>
         <label>Shipping you pay</label>
-        <input id="shipYouPay" type="number" step="0.01" placeholder="10.50">
+        <input id="shipYouPay" name="shipping" type="number" step="0.01" placeholder="10.50">
       </div>
       <div>
         <label>eBay + ad fee %</label>
@@ -146,7 +160,10 @@
         <strong id="maxCogOut">$—</strong>
       </div>
     </div>
-  </section>
+    </div>
+  </details>
+
+  </form>
 
   <section class="card mobile-panel">
     <h3 style="margin-top:0;">How this avoids duplicates</h3>
@@ -157,7 +174,7 @@
     </ul>
   </section>
 
-  <button type="button" class="btn sticky-create" id="btnCreateDraft">Create Draft Item</button>
+  <button type="submit" form="quickDraftForm" class="btn sticky-create" id="btnCreateDraft">Save Draft + Keep Scanning</button>
 </div>
 
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
@@ -323,26 +340,10 @@
     saveDraftState();
   }
 
-  function createDraftUrl() {
-    const title = (el("draftTitle").value || el("barcode").value || "").trim();
-    if (!title) {
-      alert("Add a rough title or scan a barcode first.");
-      return null;
-    }
-    const params = new URLSearchParams();
-    params.set("scanner_draft", "1");
-    params.set("title", title);
-    params.set("platform", "eBay");
-    if (el("barcode").value.trim()) params.set("barcode", el("barcode").value.trim());
-    if (el("sourceLocation").value.trim()) params.set("source_location", el("sourceLocation").value.trim());
-    if (el("cogInput").value.trim()) params.set("cog", el("cogInput").value.trim());
-    if (el("avgSoldPrice").value.trim()) params.set("sale_price", el("avgSoldPrice").value.trim());
-    if (el("shipYouPay").value.trim()) params.set("shipping", el("shipYouPay").value.trim());
-    params.set("notes", "Created from mobile scanner draft. Rename/merge after final eBay listing if needed.");
-    return `{{ url_for('item_new') }}?${params.toString()}`;
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
+    if (new URLSearchParams(window.location.search).has("created")) {
+      try { localStorage.removeItem(LS_KEY); } catch(e) {}
+    }
     loadDraftState();
     if (!el("shipYouPay").value) el("shipYouPay").value = el("shipPreset").value;
 
@@ -382,9 +383,15 @@
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
     });
 
-    el("btnCreateDraft").addEventListener("click", () => {
-      const url = createDraftUrl();
-      if (url) window.location.href = url;
+    el("quickDraftForm").addEventListener("submit", (event) => {
+      const title = (el("draftTitle").value || el("barcode").value || "").trim();
+      if (!title) {
+        event.preventDefault();
+        alert("Scan a barcode or type a rough title first.");
+        return;
+      }
+      el("draftTitle").value = title;
+      try { localStorage.removeItem(LS_KEY); } catch(e) {}
     });
   });
 </script>
