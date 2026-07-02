@@ -1760,7 +1760,25 @@ def create_app():
     @app.route("/item/new", methods=["GET", "POST"])
     @auth_required
     def item_new():
-        prefill_barcode = request.args.get("barcode", "").strip()
+        prefill = {
+            "barcode": request.args.get("barcode", "").strip(),
+            "item_name": request.args.get("title", "").strip(),
+            "platform": request.args.get("platform", "eBay").strip(),
+            "cog": request.args.get("cog", "").strip(),
+            "sale_price": request.args.get("sale_price", "").strip(),
+            "shipping": request.args.get("shipping", "").strip(),
+            "source_location": request.args.get("source_location", "").strip(),
+            "notes": request.args.get("notes", "").strip(),
+        }
+        prefill_barcode = prefill["barcode"]
+        if request.args.get("scanner_draft") == "1":
+            draft_bits = ["ScannerDraft:yes"]
+            if prefill["item_name"]:
+                draft_bits.append(f"ScannerSearch:{prefill['item_name']}")
+            if prefill["barcode"]:
+                draft_bits.append(f"ScannerBarcode:{prefill['barcode']}")
+            prefill["notes"] = "\n".join([p for p in [prefill["notes"], "\n".join(draft_bits)] if p]).strip()
+
         if request.method == "POST":
             item = Item(
                 item_name=request.form.get("item_name", "").strip(),
@@ -1797,6 +1815,7 @@ def create_app():
                     platforms=platforms,
                     source_locations=source_locations,
                     prefill_barcode=prefill_barcode,
+                    prefill=prefill,
                 )
 
             db.session.add(item)
@@ -1845,6 +1864,7 @@ def create_app():
             platforms=platforms,
             source_locations=source_locations,
             prefill_barcode=prefill_barcode,
+            prefill=prefill,
         )
 
     @app.route("/item/<int:sku>")

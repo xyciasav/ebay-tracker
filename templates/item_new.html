@@ -16,12 +16,12 @@
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap;">
       <div style="flex:1; min-width:220px;">
         <label>Item Name *</label>
-        <input name="item_name" required>
+        <input name="item_name" value="{{ (item.item_name if item else prefill.item_name) if prefill is defined else '' }}" required>
       </div>
 
       <div style="flex:1; min-width:220px;">
         <label>Platform</label>
-        <input list="platform_list" name="platform" placeholder="eBay">
+        <input list="platform_list" name="platform" value="{{ (item.platform if item else prefill.platform) if prefill is defined else '' }}" placeholder="eBay">
         <datalist id="platform_list">
           {% for p in platforms %}
             <option value="{{ p }}"></option>
@@ -50,7 +50,7 @@
           type="text"
           name="barcode"
           id="barcode"
-          value="{{ (item.barcode if item else prefill_barcode) }}"
+          value="{{ (item.barcode if item else prefill.barcode) if prefill is defined else prefill_barcode }}"
           placeholder="Scan or type barcode"
           style="min-width:220px;"
           inputmode="numeric"
@@ -111,11 +111,11 @@
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;">
         <label>COG</label>
-        <input name="cog" placeholder="12.50">
+        <input name="cog" value="{{ (item.cog if item and item.cog is not none else prefill.cog) if prefill is defined else '' }}" placeholder="12.50">
       </div>
       <div style="flex:1; min-width:220px;">
         <label>Sale Price</label>
-        <input name="sale_price" placeholder="45.00">
+        <input name="sale_price" value="{{ (item.sale_price if item and item.sale_price is not none else prefill.sale_price) if prefill is defined else '' }}" placeholder="45.00">
       </div>
       <div style="flex:1; min-width:220px;">
         <label>Buyer Paid Amount (before tax)</label>
@@ -134,7 +134,7 @@
       </div>
       <div style="flex:1; min-width:220px;">
         <label>Actual Shipping Cost</label>
-        <input name="shipping" placeholder="0.00">
+        <input name="shipping" value="{{ (item.shipping if item and item.shipping is not none else prefill.shipping) if prefill is defined else '' }}" placeholder="0.00">
       </div>
     </div>
 
@@ -144,6 +144,7 @@
         type="text"
         name="source_location"
         list="source_locations_list"
+        value="{{ (item.source_location if item else prefill.source_location) if prefill is defined else '' }}"
         placeholder="Goodwill, Ross, Estate sale, Target clearance..."
       />
       <datalist id="source_locations_list">
@@ -173,7 +174,7 @@
 
     <div style="margin-top:10px;">
       <label>Notes</label>
-      <textarea name="notes"></textarea>
+      <textarea name="notes">{{ (item.notes if item else prefill.notes) if prefill is defined else '' }}</textarea>
     </div>
 
     <div style="margin-top:10px;">
