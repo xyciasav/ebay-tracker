@@ -1258,6 +1258,8 @@ def create_app():
         range_key = (request.args.get("range") or "all").strip().lower()
         start_s = (request.args.get("start") or "").strip()
         end_s = (request.args.get("end") or "").strip()
+        top_n = parse_int(request.args.get("top")) or 10
+        top_n = max(5, min(top_n, 25))
 
         today = datetime.utcnow().date()
 
@@ -1319,8 +1321,33 @@ def create_app():
         category_col = func.coalesce(Item.category, "Uncategorized")
         source_col = func.coalesce(Item.source_location, "Unknown")
         confirmed_sold_expr = (Item.sold.is_(True)) & (Item.sold_confirmed.is_(True)) & (Item.canceled.is_(False))
+        active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False))
+        listed_expr = (Item.ebay_item_number.isnot(None)) & (Item.ebay_item_number != "")
 
         total_items = Item.query.count()
+        listed_items = Item.query.filter(active_unsold_expr, listed_expr).count()
+        not_listed_items = Item.query.filter(active_unsold_expr).filter(~listed_expr).count()
+        sold_review_items = Item.query.filter(_sold_review_expr()).count()
+        canceled_items = Item.query.filter(Item.canceled.is_(True)).count()
+
+        unsold_inventory_cost = float(
+            db.session.query(func.coalesce(func.sum(Item.cog), 0.0))
+            .filter(active_unsold_expr)
+            .scalar() or 0.0
+        )
+        unsold_listed_value = float(
+            db.session.query(func.coalesce(func.sum(Item.sale_price), 0.0))
+            .filter(active_unsold_expr, listed_expr)
+            .scalar() or 0.0
+        )
+
+        missing_sold_review = {
+            "buyer_paid": Item.query.filter(_sold_review_expr(), Item.buyer_paid_amount.is_(None)).count(),
+            "cog": Item.query.filter(_sold_review_expr(), Item.cog.is_(None)).count(),
+            "shipping": Item.query.filter(_sold_review_expr(), Item.shipping.is_(None)).count(),
+            "ad_fee": Item.query.filter(_sold_review_expr(), Item.ad_fee.is_(None)).count(),
+            "ebay_fee": Item.query.filter(_sold_review_expr(), Item.ebay_fee.is_(None)).count(),
+        }
 
         sold_items_q = Item.query.filter(confirmed_sold_expr)
         if sold_date_filters:
@@ -1538,7 +1565,7 @@ def create_app():
         if sold_date_filters:
             top_q = top_q.filter(*sold_date_filters)
 
-        top_rows = top_q.order_by(profit_expr.desc()).limit(15).all()
+        top_rows = top_q.order_by(profit_expr.desc()).limit(top_n).all()
 
         top_profit = []
         for r in top_rows:
@@ -1577,13 +1604,89 @@ def create_app():
             for tp in top_profit:
                 tp["thumb_url"] = ""
 
+        sold_review_rows = (
+            Item.query
+            .filter(_sold_review_expr())
+            .order_by(Item.date_sold.desc(), Item.sku.desc())
+            .limit(12)
+            .all()
+        )
+        sold_review_attention = []
+        for item in sold_review_rows:
+            missing = []
+            if item.buyer_paid_amount is None:
+                missing.append("Buyer paid")
+            if item.cog is None:
+                missing.append("COG")
+            if item.shipping is None:
+                missing.append("Shipping")
+            if item.ad_fee is None:
+                missing.append("Ad fee")
+            if item.ebay_fee is None:
+                missing.append("eBay fee")
+            sold_review_attention.append({
+                "sku": item.sku,
+                "item_name": item.item_name,
+                "date_sold": item.date_sold.isoformat() if item.date_sold else "",
+                "missing": missing,
+                "profit": float(item.profit or 0.0),
+            })
+
+        aged_unsold_rows = (
+            Item.query
+            .filter(active_unsold_expr, Item.date_listed.isnot(None))
+            .order_by(Item.date_listed.asc(), Item.sku.desc())
+            .limit(12)
+            .all()
+        )
+        aged_unsold = []
+        for item in aged_unsold_rows:
+            days_listed = (today - item.date_listed).days if item.date_listed else None
+            aged_unsold.append({
+                "sku": item.sku,
+                "item_name": item.item_name,
+                "date_listed": item.date_listed.isoformat() if item.date_listed else "",
+                "days_listed": days_listed,
+                "sale_price": float(item.sale_price or 0.0),
+                "listed": bool(item.ebay_item_number),
+            })
+
+        negative_q = (
+            db.session.query(
+                Item.sku,
+                Item.item_name,
+                profit_expr.label("profit"),
+                Item.date_sold.label("date_sold"),
+            )
+            .filter(confirmed_sold_expr)
+            .filter(profit_expr < 0)
+        )
+        if sold_date_filters:
+            negative_q = negative_q.filter(*sold_date_filters)
+        negative_profit = [
+            {
+                "sku": r.sku,
+                "item_name": r.item_name,
+                "profit": float(r.profit or 0.0),
+                "date_sold": r.date_sold.isoformat() if r.date_sold else "",
+            }
+            for r in negative_q.order_by(profit_expr.asc()).limit(12).all()
+        ]
+
         kpis = {
             "total_items": total_items,
+            "listed_items": listed_items,
+            "not_listed_items": not_listed_items,
+            "sold_review_items": sold_review_items,
+            "canceled_items": canceled_items,
             "sold_items": sold_items,
             "sold_rate_pct": sold_rate_pct,
             "total_profit": float(total_profit),
             "avg_profit_per_sold": float(avg_profit_per_sold),
             "avg_days_to_sell": float(avg_days_to_sell),
+            "unsold_inventory_cost": unsold_inventory_cost,
+            "unsold_listed_value": unsold_listed_value,
+            "missing_sold_review": missing_sold_review,
         }
 
         return render_template(
@@ -1592,9 +1695,13 @@ def create_app():
             by_category=by_category,
             by_source=by_source,
             top_profit=top_profit,
+            sold_review_attention=sold_review_attention,
+            aged_unsold=aged_unsold,
+            negative_profit=negative_profit,
             range_key=range_key,
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
+            top_n=top_n,
         )
 
     @app.route("/item/new", methods=["GET", "POST"])
