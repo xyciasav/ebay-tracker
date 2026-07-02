@@ -15,8 +15,9 @@
     <form method="post" enctype="multipart/form-data" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
       <div style="min-width:280px; flex:1;">
-        <label>eBay CSV file</label>
-        <input type="file" name="file" accept=".csv,text/csv" required />
+        <label>eBay CSV files</label>
+        <input type="file" name="files" accept=".csv,text/csv" multiple required />
+        <div class="small">You can select active listings, orders, and expenses at the same time.</div>
       </div>
       <button type="submit" class="btn">Upload & Preview</button>
       <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
@@ -42,19 +43,27 @@
 
     <form method="post" action="{{ url_for('import_ebay_confirm') }}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="raw_csv" value="{{ raw_csv|e }}" />
+      {% if raw_files %}
+        <textarea name="raw_files" hidden>{{ raw_files }}</textarea>
+      {% else %}
+        <textarea name="raw_csv" hidden>{{ raw_csv }}</textarea>
+      {% endif %}
 
       <div class="small" style="margin-bottom:10px;">
-        Detected report:
-        <b>{% if report_kind == "orders" %}Orders{% elif report_kind == "expenses" %}Expenses{% else %}Active listings{% endif %}</b>.
+        Detected:
+        {% if files_summary %}
+          {% for file in files_summary %}
+            <span class="pill">{{ file.label }}: {{ file.name }}</span>
+          {% endfor %}
+        {% else %}
+          <b>{% if report_kind == "orders" %}Orders{% elif report_kind == "expenses" %}Expenses{% else %}Active listings{% endif %}</b>.
+        {% endif %}
         Review the actions before importing.
       </div>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
         <button type="button" class="btn secondary" data-bulk-action="update">Update matched</button>
-        {% if report_kind != "expenses" %}
-          <button type="button" class="btn secondary" data-bulk-action="create">Create all new</button>
-        {% endif %}
+        <button type="button" class="btn secondary" data-bulk-action="create">Create all new</button>
         <button type="button" class="btn secondary" data-bulk-action="skip">Skip all</button>
       </div>
 
@@ -62,55 +71,54 @@
         <thead>
           <tr>
             <th style="width:110px;">Action</th>
-            {% if report_kind == "expenses" %}
-              <th>Order</th>
-              <th style="width:140px;">Shipping Cost</th>
-            {% else %}
-              <th>Title</th>
-              <th style="width:120px;">eBay Item #</th>
-              <th style="width:110px;">Price</th>
-              <th style="width:130px;">Date</th>
-              <th style="width:150px;">Custom Label</th>
-            {% endif %}
+            {% if report_kind == "multi" %}<th style="width:150px;">File</th>{% endif %}
+            <th>Item / Order</th>
+            <th style="width:120px;">eBay Item #</th>
+            <th style="width:110px;">Amount</th>
+            <th style="width:130px;">Date</th>
+            <th style="width:150px;">Custom Label</th>
             <th style="width:260px;">Match</th>
             <th style="width:280px;">Expected Changes</th>
           </tr>
         </thead>
         <tbody>
         {% for r in rows %}
+          {% set row_kind = r.report_kind or report_kind %}
           <tr>
             <td>
               <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}" data-has-changes="{{ '1' if r.expected_changes else '0' }}">
                 {% if r.flagged %}
                   <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
-                  {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
+                  {% if row_kind != "expenses" and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
                   <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% else %}
-                  {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
+                  {% if row_kind != "expenses" and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
                   <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% endif %}
               </select>
               <input type="hidden" name="matchid_{{ r.row_idx }}" value="{{ r.best_match_id or '' }}" />
             </td>
 
-            {% if report_kind == "expenses" %}
-              <td>{{ r.order_number }}</td>
-              <td>${{ "%.2f"|format(r.shipping_cost) }}</td>
-            {% else %}
-              <td>
+            {% if report_kind == "multi" %}
+              <td class="small"><span class="pill">{{ row_kind|title }}</span><br>{{ r.file_name }}</td>
+            {% endif %}
+            <td>
+              {% if row_kind == "expenses" %}
+                Order {{ r.order_number }}
+              {% else %}
                 {{ r.title }}
                 {% if r.is_canceled_order %}
                   <div class="small"><span class="pill canceled">Canceled order</span></div>
                 {% endif %}
-                {% if report_kind == "orders" and r.order_number %}
+                {% if row_kind == "orders" and r.order_number %}
                   <div class="small">Order {{ r.order_number }}</div>
                 {% endif %}
-              </td>
-              <td>{{ r.ebay_item_number }}</td>
-              <td>${{ "%.2f"|format(r.price) }}</td>
-              <td>{{ r.date_display or "" }}</td>
-              <td>{{ r.custom_sku }}</td>
-            {% endif %}
+              {% endif %}
+            </td>
+            <td>{{ r.ebay_item_number or "" }}</td>
+            <td>{% if row_kind == "expenses" %}${{ "%.2f"|format(r.shipping_cost) }}{% else %}${{ "%.2f"|format(r.price) }}{% endif %}</td>
+            <td>{{ r.date_display or "" }}</td>
+            <td>{{ r.custom_sku or "" }}</td>
 
             <td class="small">
               {% if r.flagged %}
@@ -131,7 +139,7 @@
                 </ul>
               {% elif r.flagged %}
                 <span class="pill">No missing fields to fill</span>
-              {% elif report_kind == "expenses" %}
+              {% elif row_kind == "expenses" %}
                 <span class="pill">No matching order</span>
               {% else %}
                 <span class="pill">New item if created</span>

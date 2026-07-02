@@ -12,6 +12,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_httpauth import HTTPBasicAuth
 from functools import wraps
 import csv
+import json
 import io, re
 import html
 import socket
@@ -760,21 +761,39 @@ def create_app():
         if request.method == "GET":
             return render_template("import_ebay.html", step="upload")
 
-        f = request.files.get("file")
-        if not f or not f.filename:
-            flash("Please choose an eBay CSV file to upload.", "error")
+        uploaded_files = [f for f in request.files.getlist("files") if f and f.filename]
+        if not uploaded_files:
+            single_file = request.files.get("file")
+            if single_file and single_file.filename:
+                uploaded_files = [single_file]
+
+        if not uploaded_files:
+            flash("Please choose one or more eBay CSV files to upload.", "error")
             return redirect(url_for("import_ebay"))
 
-        try:
-            raw = f.read().decode("utf-8", errors="replace")
-        except Exception:
-            flash("Could not read that file. Make sure it is a CSV exported from eBay.", "error")
-            return redirect(url_for("import_ebay"))
+        file_payloads = []
+        kind_order = {"active": 0, "orders": 1, "expenses": 2}
+        for idx, upload in enumerate(uploaded_files):
+            try:
+                raw = upload.read().decode("utf-8", errors="replace")
+            except Exception:
+                flash(f"Could not read {upload.filename}. Make sure it is a CSV exported from eBay.", "error")
+                return redirect(url_for("import_ebay"))
 
-        report_kind, parsed_rows = _iter_ebay_rows(raw)
-        if not report_kind:
-            flash("That does not look like an eBay active listings or orders CSV.", "error")
-            return redirect(url_for("import_ebay"))
+            report_kind, parsed_rows = _iter_ebay_rows(raw)
+            if not report_kind:
+                flash(f"{upload.filename} does not look like an eBay active listings, orders, or expenses CSV.", "error")
+                return redirect(url_for("import_ebay"))
+
+            file_payloads.append({
+                "name": secure_filename(upload.filename) or upload.filename or f"upload-{idx + 1}.csv",
+                "kind": report_kind,
+                "raw": raw,
+                "sort_order": kind_order.get(report_kind, 99),
+                "original_index": idx,
+            })
+
+        file_payloads.sort(key=lambda p: (p["sort_order"], p["original_index"]))
 
         existing = Item.query.all()
         existing_by_sku = {it.sku: it for it in existing}
@@ -793,6 +812,177 @@ def create_app():
             for it in existing
             if (getattr(it, "ebay_order_number", None) or "").strip()
         }
+
+        rows = []
+        global_idx = 0
+
+        for file_payload in file_payloads:
+            report_kind = file_payload["kind"]
+            report_name = file_payload["name"]
+            _, parsed_rows = _iter_ebay_rows(file_payload["raw"])
+
+            if report_kind == "expenses":
+                grouped = {}
+                for r in parsed_rows:
+                    grouping = (r.get("Expense grouping") or "").strip().lower()
+                    category = (r.get("Expense category") or "").strip().lower()
+                    expense_type = (r.get("Expense type") or "").strip().lower()
+                    order_number = (r.get("Order number") or "").strip()
+                    if not order_number or order_number == "--":
+                        continue
+                    if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                        continue
+                    amount = parse_float(r.get("Net expense"))
+                    if amount is None:
+                        continue
+                    grouped.setdefault(order_number, 0.0)
+                    grouped[order_number] += amount
+
+                for order_number, shipping_total in sorted(grouped.items()):
+                    shipping_cost = abs(shipping_total)
+                    item = existing_by_order.get(order_number)
+                    expected_changes = _import_change_preview(item, "expenses", {"shipping_cost": shipping_cost})
+                    rows.append({
+                        "row_idx": global_idx,
+                        "file_name": report_name,
+                        "report_kind": report_kind,
+                        "order_number": order_number,
+                        "shipping_cost": shipping_cost,
+                        "flagged": item is not None,
+                        "best_match_id": item.sku if item else None,
+                        "best_match_title": item.item_name if item else None,
+                        "expected_changes": expected_changes,
+                        "default_action": "update" if item and expected_changes else "skip",
+                    })
+                    global_idx += 1
+                continue
+
+            for r in parsed_rows:
+                if report_kind == "orders":
+                    title = (r.get("Item Title") or "").strip()
+                    ebay_item_number = (r.get("Item Number") or "").strip()
+                    price = parse_float(r.get("Sold For")) or 0.0
+                    date_display = _parse_ebay_date(r.get("Sale Date") or "")
+                    custom_sku = (r.get("Custom Label") or "").strip()
+                    order_number = (r.get("Order Number") or "").strip()
+                    quantity = parse_int(r.get("Quantity")) or 1
+                    is_canceled_order = _is_canceled_order_row(r)
+                    tracking_number = (r.get("Tracking Number") or "").strip()
+                    date_shipped = _parse_ebay_date(r.get("Shipped On Date") or "")
+                    buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
+                    total_price = parse_float(r.get("Total Price"))
+                    ebay_collected_tax = parse_float(r.get("eBay Collected Tax")) or 0.0
+                    ebay_collected_charges = parse_float(r.get("eBay Collected Charges")) or 0.0
+                    buyer_paid_amount = (
+                        total_price - ebay_collected_tax - ebay_collected_charges
+                        if total_price is not None
+                        else price + buyer_shipping_paid
+                    )
+                    category = None
+                    condition = None
+                else:
+                    title = (r.get("Title") or "").strip()
+                    ebay_item_number = (r.get("Item number") or "").strip()
+                    price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
+                    date_display = _parse_ebay_date(r.get("Start date") or "")
+                    custom_sku = (r.get("Custom label (SKU)") or "").strip()
+                    order_number = ""
+                    quantity = parse_int(r.get("Available quantity")) or 1
+                    is_canceled_order = False
+                    tracking_number = ""
+                    date_shipped = None
+                    buyer_paid_amount = None
+                    category = (r.get("eBay category 1 name") or "").strip() or None
+                    condition = (r.get("Condition") or "").strip() or None
+
+                if not title:
+                    continue
+
+                ntitle = _norm_title(title)
+                best = None
+                best_score = 0.0
+                match_reason = ""
+                for (eid, etitle, entitle, e_item_no, e_custom_label) in existing_norm:
+                    if ebay_item_number and e_item_no and ebay_item_number == e_item_no:
+                        best = (eid, etitle)
+                        best_score = 1.0
+                        match_reason = "Same eBay item number"
+                        break
+                    if custom_sku and e_custom_label and custom_sku == e_custom_label:
+                        best = (eid, etitle)
+                        best_score = 0.98
+                        match_reason = "Same eBay custom label"
+                        break
+                    if not entitle:
+                        continue
+                    score = _similar(ntitle, entitle)
+                    if score > best_score:
+                        best_score = score
+                        best = (eid, etitle)
+                        match_reason = "Similar title"
+
+                flagged = best is not None and best_score >= 0.86
+                matched_item = existing_by_sku.get(best[0]) if flagged and best else None
+                values = {
+                    "platform": "eBay",
+                    "price": price if price else None,
+                    "date_listed": date_display if report_kind != "orders" else None,
+                    "sale_date": date_display if report_kind == "orders" else None,
+                    "ebay_item_number": ebay_item_number,
+                    "ebay_item_url": f"https://www.ebay.com/itm/{ebay_item_number}" if ebay_item_number else None,
+                    "custom_sku": custom_sku,
+                    "category": category,
+                    "condition": condition,
+                    "order_number": order_number,
+                    "buyer_paid_amount": buyer_paid_amount,
+                    "is_canceled_order": is_canceled_order,
+                    "tracking_number": tracking_number,
+                    "date_shipped": date_shipped,
+                }
+                expected_changes = _import_change_preview(matched_item, report_kind, values)
+                rows.append({
+                    "row_idx": global_idx,
+                    "file_name": report_name,
+                    "report_kind": report_kind,
+                    "title": title,
+                    "date_display": date_display,
+                    "price": price,
+                    "custom_sku": custom_sku,
+                    "ebay_item_number": ebay_item_number,
+                    "order_number": order_number,
+                    "quantity": quantity,
+                    "is_canceled_order": is_canceled_order,
+                    "flagged": flagged,
+                    "best_match_id": best[0] if best else None,
+                    "best_match_title": best[1] if best else None,
+                    "best_score": round(best_score, 3),
+                    "match_reason": match_reason,
+                    "expected_changes": expected_changes,
+                    "default_action": "update" if flagged and expected_changes else ("skip" if flagged or is_canceled_order else "create"),
+                })
+                global_idx += 1
+
+        if not rows:
+            flash("No usable rows found in the uploaded file(s).", "warning")
+            return redirect(url_for("import_ebay"))
+
+        files_summary = [
+            {
+                "name": p["name"],
+                "kind": p["kind"],
+                "label": "Orders" if p["kind"] == "orders" else ("Expenses" if p["kind"] == "expenses" else "Active listings"),
+            }
+            for p in file_payloads
+        ]
+        return render_template(
+            "import_ebay.html",
+            step="preview",
+            rows=rows,
+            raw_files=json.dumps(file_payloads),
+            raw_csv=file_payloads[0]["raw"] if len(file_payloads) == 1 else "",
+            report_kind=file_payloads[0]["kind"] if len(file_payloads) == 1 else "multi",
+            files_summary=files_summary,
+        )
 
         if report_kind == "expenses":
             grouped = {}
@@ -946,222 +1136,241 @@ def create_app():
     @app.route("/import/ebay/confirm", methods=["POST"])
     @auth_required
     def import_ebay_confirm():
+        raw_files = request.form.get("raw_files", "")
         raw_csv = request.form.get("raw_csv", "")
-        if not raw_csv:
-            flash("Import session expired. Please upload again.", "error")
-            return redirect(url_for("import_ebay"))
+        file_payloads = []
 
-        report_kind, parsed_rows = _iter_ebay_rows(raw_csv)
-        if not report_kind:
-            flash("Import session expired or the CSV format was not recognized. Please upload again.", "error")
+        if raw_files:
+            try:
+                file_payloads = json.loads(raw_files)
+            except Exception:
+                file_payloads = []
+        elif raw_csv:
+            report_kind, _ = _iter_ebay_rows(raw_csv)
+            if report_kind:
+                file_payloads = [{"name": "upload.csv", "kind": report_kind, "raw": raw_csv}]
+
+        if not file_payloads:
+            flash("Import session expired. Please upload again.", "error")
             return redirect(url_for("import_ebay"))
 
         created = 0
         updated = 0
         skipped = 0
+        saw_orders_or_expenses = False
+        action_idx = 0
 
-        if report_kind == "expenses":
-            grouped = {}
+        for file_payload in file_payloads:
+            report_kind = file_payload.get("kind")
+            raw = file_payload.get("raw", "")
+            detected_kind, parsed_rows = _iter_ebay_rows(raw)
+            report_kind = report_kind if report_kind == detected_kind else detected_kind
+            if not report_kind:
+                continue
+
+            if report_kind in ("orders", "expenses"):
+                saw_orders_or_expenses = True
+
+            if report_kind == "expenses":
+                grouped = {}
+                for r in parsed_rows:
+                    grouping = (r.get("Expense grouping") or "").strip().lower()
+                    category = (r.get("Expense category") or "").strip().lower()
+                    expense_type = (r.get("Expense type") or "").strip().lower()
+                    order_number = (r.get("Order number") or "").strip()
+                    if not order_number or order_number == "--":
+                        continue
+                    if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                        continue
+                    amount = parse_float(r.get("Net expense"))
+                    if amount is None:
+                        continue
+                    grouped.setdefault(order_number, 0.0)
+                    grouped[order_number] += amount
+
+                for order_number, shipping_total in sorted(grouped.items()):
+                    shipping_cost = abs(shipping_total)
+                    decision = request.form.get(f"decision_{action_idx}", "skip")
+                    match_id = request.form.get(f"matchid_{action_idx}")
+                    action_idx += 1
+                    if decision == "skip":
+                        skipped += 1
+                        continue
+
+                    item = Item.query.get(int(match_id)) if match_id else None
+                    if not item:
+                        skipped += 1
+                        continue
+
+                    changed = False
+                    changed = _set_if_missing(item, "shipping", shipping_cost) or changed
+                    if not item.sold:
+                        item.sold = True
+                        changed = True
+                    if changed and item.sold_confirmed:
+                        item.sold_confirmed = False
+                    if changed:
+                        _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
+                        updated += 1
+                    else:
+                        skipped += 1
+                continue
+
             for r in parsed_rows:
-                grouping = (r.get("Expense grouping") or "").strip().lower()
-                category = (r.get("Expense category") or "").strip().lower()
-                expense_type = (r.get("Expense type") or "").strip().lower()
-                order_number = (r.get("Order number") or "").strip()
-                if not order_number or order_number == "--":
-                    continue
-                if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
-                    continue
-                amount = parse_float(r.get("Net expense"))
-                if amount is None:
-                    continue
-                grouped.setdefault(order_number, 0.0)
-                grouped[order_number] += amount
+                if report_kind == "orders":
+                    title = (r.get("Item Title") or "").strip()
+                    ebay_item_number = (r.get("Item Number") or "").strip()
+                    order_number = (r.get("Order Number") or "").strip()
+                    custom_sku = (r.get("Custom Label") or "").strip()
+                    is_canceled_order = _is_canceled_order_row(r)
+                    tracking_number = (r.get("Tracking Number") or "").strip()
+                    date_shipped = _parse_ebay_date(r.get("Shipped On Date") or "")
+                    price = parse_float(r.get("Sold For")) or 0.0
+                    buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
+                    total_price = parse_float(r.get("Total Price"))
+                    ebay_collected_tax = parse_float(r.get("eBay Collected Tax")) or 0.0
+                    ebay_collected_charges = parse_float(r.get("eBay Collected Charges")) or 0.0
+                    buyer_paid_amount = (
+                        total_price - ebay_collected_tax - ebay_collected_charges
+                        if total_price is not None
+                        else price + buyer_shipping_paid
+                    )
+                    sale_date = _parse_ebay_date(r.get("Sale Date") or "")
+                    date_listed = None
+                    category = None
+                    condition = None
+                else:
+                    title = (r.get("Title") or "").strip()
+                    ebay_item_number = (r.get("Item number") or "").strip()
+                    order_number = ""
+                    custom_sku = (r.get("Custom label (SKU)") or "").strip()
+                    is_canceled_order = False
+                    tracking_number = ""
+                    date_shipped = None
+                    price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
+                    buyer_paid_amount = None
+                    buyer_shipping_paid = None
+                    ebay_collected_tax = None
+                    ebay_collected_charges = None
+                    sale_date = None
+                    date_listed = _parse_ebay_date(r.get("Start date") or "")
+                    category = (r.get("eBay category 1 name") or "").strip() or None
+                    condition = (r.get("Condition") or "").strip() or None
 
-            for i, (order_number, shipping_total) in enumerate(sorted(grouped.items())):
-                shipping_cost = abs(shipping_total)
-                decision = request.form.get(f"decision_{i}", "skip")
+                if not title:
+                    continue
+
+                decision = request.form.get(f"decision_{action_idx}", "skip")
+                match_id = request.form.get(f"matchid_{action_idx}")
+                action_idx += 1
+
                 if decision == "skip":
                     skipped += 1
                     continue
 
-                match_id = request.form.get(f"matchid_{i}")
-                item = Item.query.get(int(match_id)) if match_id else None
-                if not item:
+                if report_kind == "orders" and is_canceled_order and decision == "create":
                     skipped += 1
                     continue
 
-                changed = False
-                changed = _set_if_missing(item, "shipping", shipping_cost) or changed
-                if not item.sold:
-                    item.sold = True
-                    changed = True
-                if changed and item.sold_confirmed:
-                    item.sold_confirmed = False
-                if changed:
-                    _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
-                    updated += 1
+                if decision == "update":
+                    item = Item.query.get(int(match_id)) if match_id else None
+                    if not item:
+                        skipped += 1
+                        continue
                 else:
-                    skipped += 1
+                    item = Item(item_name=title)
+                    db.session.add(item)
+                    created += 1
 
-            db.session.commit()
-            flash(f"Imported eBay expense shipping. Updated: {updated}, Skipped: {skipped}.", "success")
-            return redirect(url_for("index", status="sold_review"))
+                changed = decision == "create"
 
-        for i, r in enumerate(parsed_rows):
-            if report_kind == "orders":
-                title = (r.get("Item Title") or "").strip()
-                ebay_item_number = (r.get("Item Number") or "").strip()
-                order_number = (r.get("Order Number") or "").strip()
-                custom_sku = (r.get("Custom Label") or "").strip()
-                is_canceled_order = _is_canceled_order_row(r)
-                tracking_number = (r.get("Tracking Number") or "").strip()
-                date_shipped = _parse_ebay_date(r.get("Shipped On Date") or "")
-                price = parse_float(r.get("Sold For")) or 0.0
-                buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
-                total_price = parse_float(r.get("Total Price"))
-                ebay_collected_tax = parse_float(r.get("eBay Collected Tax")) or 0.0
-                ebay_collected_charges = parse_float(r.get("eBay Collected Charges")) or 0.0
-                buyer_paid_amount = (
-                    total_price - ebay_collected_tax - ebay_collected_charges
-                    if total_price is not None
-                    else price + buyer_shipping_paid
-                )
-                shipping = None
-                sale_date = _parse_ebay_date(r.get("Sale Date") or "")
-                date_listed = None
-                category = None
-                condition = None
-            else:
-                title = (r.get("Title") or "").strip()
-                ebay_item_number = (r.get("Item number") or "").strip()
-                order_number = ""
-                custom_sku = (r.get("Custom label (SKU)") or "").strip()
-                is_canceled_order = False
-                tracking_number = ""
-                date_shipped = None
-                price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
-                buyer_paid_amount = None
-                buyer_shipping_paid = None
-                ebay_collected_tax = None
-                ebay_collected_charges = None
-                shipping = None
-                sale_date = None
-                date_listed = _parse_ebay_date(r.get("Start date") or "")
-                category = (r.get("eBay category 1 name") or "").strip() or None
-                condition = (r.get("Condition") or "").strip() or None
-
-            if not title:
-                continue
-
-            decision = request.form.get(f"decision_{i}", "skip")
-            if decision == "skip":
-                skipped += 1
-                continue
-
-            if report_kind == "orders" and is_canceled_order and decision == "create":
-                skipped += 1
-                continue
-
-            if decision == "update":
-                match_id = request.form.get(f"matchid_{i}")
-                item = Item.query.get(int(match_id)) if match_id else None
-                if not item:
-                    skipped += 1
-                    continue
-            else:
-                item = Item(item_name=title)
-                db.session.add(item)
-                created += 1
-
-            changed = decision == "create"
-
-            if decision == "create":
-                item.item_name = title
-                item.platform = "eBay"
-                item.canceled = False
-                if price:
-                    item.sale_price = price
-                if date_listed:
-                    item.date_listed = date_listed
-                if ebay_item_number:
-                    item.ebay_item_number = ebay_item_number
-                    item.ebay_item_url = f"https://www.ebay.com/itm/{ebay_item_number}"
-                if custom_sku:
-                    item.ebay_custom_label = custom_sku
-                if category:
-                    item.ebay_category = category
-                    item.category = category
-                if condition:
-                    item.ebay_condition = condition
-            else:
-                changed = _set_if_missing(item, "platform", "eBay") or changed
-                changed = _set_if_missing(item, "sale_price", price if price else None) or changed
-                changed = _set_if_missing(item, "date_listed", date_listed) or changed
-                changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
-                if ebay_item_number:
-                    changed = _set_if_missing(item, "ebay_item_url", f"https://www.ebay.com/itm/{ebay_item_number}") or changed
-                changed = _set_if_missing(item, "ebay_custom_label", custom_sku) or changed
-                changed = _set_if_missing(item, "ebay_category", category) or changed
-                changed = _set_if_missing(item, "category", category) or changed
-                changed = _set_if_missing(item, "ebay_condition", condition) or changed
-
-            if report_kind == "orders":
-                if is_canceled_order:
-                    if item.sold or item.sold_confirmed or not item.canceled:
-                        changed = True
-                    item.sold = False
-                    item.sold_confirmed = False
-                    item.pending_shipping = False
-                    item.canceled = True
-                    changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
-                    if changed:
-                        _append_note_tag(item, f"eBayCanceledOrder:{order_number}")
-                elif not item.sold:
-                    item.sold = True
+                if decision == "create":
+                    item.item_name = title
+                    item.platform = "eBay"
                     item.canceled = False
-                    changed = True
-                elif item.canceled:
-                    item.canceled = False
-                    changed = True
+                    if price:
+                        item.sale_price = price
+                    if date_listed:
+                        item.date_listed = date_listed
+                    if ebay_item_number:
+                        item.ebay_item_number = ebay_item_number
+                        item.ebay_item_url = f"https://www.ebay.com/itm/{ebay_item_number}"
+                    if custom_sku:
+                        item.ebay_custom_label = custom_sku
+                    if category:
+                        item.ebay_category = category
+                        item.category = category
+                    if condition:
+                        item.ebay_condition = condition
+                else:
+                    changed = _set_if_missing(item, "platform", "eBay") or changed
+                    changed = _set_if_missing(item, "sale_price", price if price else None) or changed
+                    changed = _set_if_missing(item, "date_listed", date_listed) or changed
+                    changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
+                    if ebay_item_number:
+                        changed = _set_if_missing(item, "ebay_item_url", f"https://www.ebay.com/itm/{ebay_item_number}") or changed
+                    changed = _set_if_missing(item, "ebay_custom_label", custom_sku) or changed
+                    changed = _set_if_missing(item, "ebay_category", category) or changed
+                    changed = _set_if_missing(item, "category", category) or changed
+                    changed = _set_if_missing(item, "ebay_condition", condition) or changed
 
-                if not is_canceled_order:
-                    changed = _set_if_missing(item, "date_sold", sale_date) or changed
-                    changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
-                    changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
-                    review_changed = changed
-                    changed = _set_if_missing(item, "tracking_number", tracking_number) or changed
-                    changed = _set_if_missing(item, "date_shipped", date_shipped) or changed
-                    if (tracking_number or date_shipped) and item.pending_shipping:
-                        item.pending_shipping = False
-                        changed = True
-                    if review_changed and item.sold_confirmed:
+                if report_kind == "orders":
+                    if is_canceled_order:
+                        if item.sold or item.sold_confirmed or not item.canceled:
+                            changed = True
+                        item.sold = False
                         item.sold_confirmed = False
-                    if changed:
-                        _append_note_tag(item, f"eBayOrder:{order_number}")
-                        _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
-                        _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
-                        _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
-                        if ebay_collected_charges:
-                            _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
-            else:
-                item.sold = False if item.sold is None else item.sold
-                if item.canceled:
-                    item.canceled = False
-                    changed = True
+                        item.pending_shipping = False
+                        item.canceled = True
+                        changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                        if changed:
+                            _append_note_tag(item, f"eBayCanceledOrder:{order_number}")
+                    elif not item.sold:
+                        item.sold = True
+                        item.canceled = False
+                        changed = True
+                    elif item.canceled:
+                        item.canceled = False
+                        changed = True
 
-            if decision == "update":
-                if changed:
-                    _append_note_tag(item, f"eBaySKU:{custom_sku}")
-                    updated += 1
+                    if not is_canceled_order:
+                        changed = _set_if_missing(item, "date_sold", sale_date) or changed
+                        changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
+                        changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                        review_changed = changed
+                        changed = _set_if_missing(item, "tracking_number", tracking_number) or changed
+                        changed = _set_if_missing(item, "date_shipped", date_shipped) or changed
+                        if (tracking_number or date_shipped) and item.pending_shipping:
+                            item.pending_shipping = False
+                            changed = True
+                        if review_changed and item.sold_confirmed:
+                            item.sold_confirmed = False
+                        if changed:
+                            _append_note_tag(item, f"eBayOrder:{order_number}")
+                            _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
+                            _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
+                            _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
+                            if ebay_collected_charges:
+                                _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
                 else:
-                    skipped += 1
-            elif decision == "create":
-                _append_note_tag(item, f"eBaySKU:{custom_sku}")
+                    item.sold = False if item.sold is None else item.sold
+                    if item.canceled:
+                        item.canceled = False
+                        changed = True
+
+                if decision == "update":
+                    if changed:
+                        _append_note_tag(item, f"eBaySKU:{custom_sku}")
+                        updated += 1
+                    else:
+                        skipped += 1
+                elif decision == "create":
+                    _append_note_tag(item, f"eBaySKU:{custom_sku}")
 
         db.session.commit()
-        label = "orders" if report_kind == "orders" else "active listings"
+        label = "file" if len(file_payloads) == 1 else "files"
         flash(f"Imported eBay {label}. Created: {created}, Updated: {updated}, Skipped: {skipped}.", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("index", status="sold_review" if saw_orders_or_expenses else "all"))
 
     @app.route("/import/ebay/active", methods=["GET", "POST"])
     @auth_required
@@ -1397,7 +1606,21 @@ def create_app():
     @app.get("/store")
     def public_store():
         q = request.args.get("q", "").strip()
+        category_filter = request.args.get("category", "").strip()
+        sort = request.args.get("sort", "newest").strip().lower()
         query = _public_store_query()
+
+        category_rows = (
+            _public_store_query()
+            .with_entities(Item.category, Item.ebay_category)
+            .all()
+        )
+        categories = sorted({
+            (category or ebay_category or "").strip()
+            for category, ebay_category in category_rows
+            if (category or ebay_category or "").strip()
+        }, key=str.lower)
+
         if q:
             like = f"%{q}%"
             query = query.filter(
@@ -1405,8 +1628,31 @@ def create_app():
                 (Item.category.ilike(like)) |
                 (Item.ebay_category.ilike(like))
             )
-        items = query.order_by(Item.date_listed.desc(), Item.sku.desc()).all()
-        return render_template("store.html", items=items, q=q)
+        if category_filter:
+            query = query.filter(
+                (Item.category == category_filter) |
+                (Item.ebay_category == category_filter)
+            )
+
+        if sort == "price_low":
+            query = query.order_by(Item.sale_price.asc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
+        elif sort == "price_high":
+            query = query.order_by(Item.sale_price.desc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
+        else:
+            sort = "newest"
+            query = query.order_by(Item.date_listed.desc(), Item.sku.desc())
+
+        items = query.all()
+        new_arrivals = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).limit(6).all()
+        return render_template(
+            "store.html",
+            items=items,
+            q=q,
+            categories=categories,
+            category_filter=category_filter,
+            sort=sort,
+            new_arrivals=new_arrivals,
+        )
 
     @app.get("/store/image/<int:image_id>")
     def public_store_image(image_id: int):

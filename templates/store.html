@@ -12,6 +12,7 @@
       --muted:#6b7280;
       --border:#e7ded1;
       --accent:#2563eb;
+      --accent-dark:#1d4ed8;
       --soft:#f1ece4;
       --shadow:0 18px 45px rgba(31,41,51,.08);
     }
@@ -35,7 +36,7 @@
     }
     h1{ margin:0; font-size:clamp(34px, 7vw, 64px); letter-spacing:-.06em; line-height:.95; }
     .tagline{ color:var(--muted); margin-top:10px; max-width:650px; font-size:16px; }
-    .search-card{
+    .search-card, .feature-card{
       background:var(--card);
       border:1px solid var(--border);
       border-radius:18px;
@@ -43,9 +44,12 @@
       box-shadow:var(--shadow);
       margin-bottom:18px;
     }
-    form{ display:flex; gap:10px; }
-    input{
+    form{ display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+    .field{ flex:1; min-width:190px; }
+    label{ display:block; color:var(--muted); font-size:12px; font-weight:800; margin:0 0 5px; text-transform:uppercase; letter-spacing:.05em; }
+    input, select{
       flex:1;
+      width:100%;
       min-width:0;
       border:1px solid var(--border);
       border-radius:12px;
@@ -67,11 +71,40 @@
       white-space:nowrap;
       cursor:pointer;
     }
+    .btn:hover{ background:var(--accent-dark); }
     .btn.secondary{ background:var(--soft); color:var(--text); }
+    .btn.secondary:hover{ background:#e8dfd2; }
+    .section-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:end;
+      gap:12px;
+      margin:20px 0 10px;
+    }
+    .section-head h2{ margin:0; font-size:24px; letter-spacing:-.04em; }
+    .section-head .small{ color:var(--muted); font-size:13px; }
+    .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:8px 11px;
+      background:#fff;
+      text-decoration:none;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:700;
+    }
+    .chip.active{ color:#fff; background:var(--accent); border-color:var(--accent); }
     .store-grid{
       display:grid;
       grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
       gap:16px;
+    }
+    .store-grid.compact{
+      grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
+      gap:12px;
     }
     .store-card{
       background:var(--card);
@@ -92,6 +125,7 @@
       color:var(--muted);
       overflow:hidden;
     }
+    .store-grid.compact .store-photo{ height:170px; }
     .store-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
     .store-body{ padding:13px; display:flex; flex-direction:column; gap:10px; flex:1; }
     .store-title{
@@ -104,6 +138,7 @@
       overflow:hidden;
     }
     .store-meta{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:auto; }
+    .store-actions{ display:flex; gap:8px; flex-wrap:wrap; }
     .price{ font-size:22px; font-weight:850; letter-spacing:-.03em; }
     .category{ color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .empty{
@@ -120,8 +155,12 @@
       .store-hero{ display:block; }
       form{ display:block; }
       form .btn{ width:100%; margin-top:8px; }
+      .field{ min-width:0; margin-bottom:8px; }
       .store-grid{ grid-template-columns:1fr; }
+      .store-grid.compact{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
       .store-photo{ height:280px; }
+      .store-grid.compact .store-photo{ height:160px; }
+      .store-actions .btn{ flex:1; padding-left:10px; padding-right:10px; }
     }
   </style>
 </head>
@@ -137,11 +176,79 @@
 
     <section class="search-card">
       <form method="get" action="{{ url_for('public_store') }}">
-        <input name="q" value="{{ q }}" placeholder="Search available items..." autocomplete="off">
+        <div class="field">
+          <label>Search</label>
+          <input name="q" value="{{ q }}" placeholder="Search available items..." autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <select name="category">
+            <option value="">All categories</option>
+            {% for category in categories %}
+              <option value="{{ category }}" {% if category == category_filter %}selected{% endif %}>{{ category }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Sort</label>
+          <select name="sort">
+            <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
+            <option value="price_low" {% if sort == "price_low" %}selected{% endif %}>Price: low to high</option>
+            <option value="price_high" {% if sort == "price_high" %}selected{% endif %}>Price: high to low</option>
+          </select>
+        </div>
         <button class="btn" type="submit">Search</button>
-        {% if q %}<a class="btn secondary" href="{{ url_for('public_store') }}">Clear</a>{% endif %}
+        {% if q or category_filter or sort != "newest" %}<a class="btn secondary" href="{{ url_for('public_store') }}">Clear</a>{% endif %}
       </form>
+      {% if categories %}
+        <div class="chips" aria-label="Browse by category">
+          <a class="chip {% if not category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, sort=sort) }}">All</a>
+          {% for category in categories[:10] %}
+            <a class="chip {% if category == category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, category=category, sort=sort) }}">{{ category }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
     </section>
+
+    {% if not q and not category_filter and new_arrivals %}
+      <section class="feature-card">
+        <div class="section-head" style="margin-top:0;">
+          <div>
+            <h2>New arrivals</h2>
+            <div class="small">Freshly listed items from eBay.</div>
+          </div>
+        </div>
+        <div class="store-grid compact">
+          {% for item in new_arrivals %}
+            {% set image = item.images[0] if item.images else none %}
+            {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number %}
+            <article class="store-card">
+              <a class="store-photo" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">
+                {% if image %}
+                  <img src="{{ url_for('public_store_image', image_id=image.id) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">
+                {% else %}
+                  <span>No photo yet</span>
+                {% endif %}
+              </a>
+              <div class="store-body">
+                <h2 class="store-title">{{ item.item_name }}</h2>
+                <div class="store-meta">
+                  <div class="price">{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}See eBay{% endif %}</div>
+                  <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">View</a>
+                </div>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <div class="section-head">
+      <div>
+        <h2>Available now</h2>
+        <div class="small">{{ items|length }} item{% if items|length != 1 %}s{% endif %}{% if category_filter %} in {{ category_filter }}{% endif %}</div>
+      </div>
+    </div>
 
     <section class="store-grid">
       {% for item in items %}
@@ -162,7 +269,10 @@
             {% endif %}
             <div class="store-meta">
               <div class="price">{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}See eBay{% endif %}</div>
-              <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+              <div class="store-actions">
+                <button class="btn secondary share-btn" type="button" data-title="{{ item.item_name }}" data-url="{{ ebay_url }}">Share</button>
+                <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
+              </div>
             </div>
           </div>
         </article>
@@ -173,5 +283,25 @@
 
     <footer>Inventory and checkout are handled on eBay.</footer>
   </main>
+  <script>
+    document.addEventListener("click", async (event) => {
+      const btn = event.target.closest(".share-btn");
+      if (!btn) return;
+      const url = btn.dataset.url;
+      const title = btn.dataset.title || "Dash of Joy Store item";
+      try {
+        if (navigator.share) {
+          await navigator.share({ title, url });
+        } else if (navigator.clipboard) {
+          await navigator.clipboard.writeText(url);
+          const old = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = old; }, 1200);
+        }
+      } catch (err) {
+        window.open(url, "_blank", "noopener");
+      }
+    });
+  </script>
 </body>
 </html>
