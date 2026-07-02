@@ -1832,14 +1832,13 @@ def create_app():
             flash(f"Could not find target SKU #{target_sku}.", "error")
             return redirect(url_for("item_detail", sku=source.sku, return_to=return_to))
 
-        moved_images = 0
-        for img in list(source.images or []):
-            source.images.remove(img)
-            target.images.append(img)
-            moved_images += 1
-
         copied_fields = _copy_missing_item_fields(target, source)
         _merge_notes(target, source)
+        moved_images = (
+            ItemImage.query
+            .filter_by(item_sku=source.sku)
+            .update({"item_sku": target.sku}, synchronize_session=False)
+        )
 
         db.session.delete(source)
         db.session.commit()
