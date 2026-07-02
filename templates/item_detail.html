@@ -19,6 +19,13 @@
         <button class="btn" type="submit">Confirm Sold</button>
       </form>
     {% endif %}
+    {% if item.pending_shipping %}
+      <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <button class="btn" type="submit">Mark Shipped</button>
+      </form>
+    {% endif %}
     <form method="post" action="{{ url_for('item_delete', sku=item.sku) }}"
           onsubmit="return confirm('Delete SKU {{ item.sku }}? This removes the item and its photos.');">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
@@ -45,6 +52,8 @@
           <span class="pill canceled">Canceled</span>
         {% elif needs_sold_review %}
           <span class="pill review">Sold Review</span>
+        {% elif item.pending_shipping %}
+          <span class="pill pending">Pending Shipping</span>
         {% elif item.sold %}
           <span class="pill sold">Sold</span>
         {% elif item.ebay_item_number %}
@@ -75,6 +84,10 @@
         <div class="flash warning" style="margin-top:12px;">
           Review COG, actual shipping, ad fee, eBay fee, and buyer-paid amount. Click Confirm Sold when this item is final.
         </div>
+      {% elif item.pending_shipping %}
+        <div class="flash warning" style="margin-top:12px;">
+          This item is confirmed sold but still needs to be taken to the post office. Click Mark Shipped when it is out.
+        </div>
       {% elif item.canceled %}
         <div class="flash warning" style="margin-top:12px;">
           This order was imported as canceled. It is not counted as sold.
@@ -92,6 +105,8 @@
         <div><label>eBay Fee</label><div>{% if item.ebay_fee is not none %}${{ "%.2f"|format(item.ebay_fee) }}{% else %}—{% endif %}</div></div>
         <div><label>Date Listed</label><div>{{ item.date_listed or "—" }}</div></div>
         <div><label>Date Sold</label><div>{{ item.date_sold or "—" }}</div></div>
+        <div><label>Date Shipped</label><div>{{ item.date_shipped or "—" }}</div></div>
+        <div><label>Tracking #</label><div>{{ item.tracking_number or "—" }}</div></div>
         <div><label>eBay Item #</label><div>{{ item.ebay_item_number or "—" }}</div></div>
         <div><label>eBay Order #</label><div>{{ item.ebay_order_number or "—" }}</div></div>
         <div><label>Custom Label</label><div>{{ item.ebay_custom_label or "—" }}</div></div>

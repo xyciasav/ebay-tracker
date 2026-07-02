@@ -28,6 +28,9 @@
   <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
     <span>Sold Review</span><b>{{ status_counts.sold_review }}</b>
   </a>
+  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+    <span>Pending Shipping</span><b>{{ status_counts.pending_shipping }}</b>
+  </a>
   <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
     <span>Canceled</span><b>{{ status_counts.canceled }}</b>
   </a>
@@ -109,6 +112,8 @@
                 <span class="pill canceled">Canceled</span>
               {% elif needs_sold_review %}
                 <span class="pill review">Sold Review</span>
+              {% elif item.pending_shipping %}
+                <span class="pill pending">Pending Shipping</span>
               {% elif item.sold %}
                 <span class="pill sold">Sold</span>
               {% elif is_listed %}
@@ -128,6 +133,13 @@
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 {% if ebay_url %}
                   <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
+                {% endif %}
+                {% if item.pending_shipping %}
+                  <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}" style="margin:0;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="return_to" value="{{ current_url }}">
+                    <button class="btn secondary" type="submit">Shipped</button>
+                  </form>
                 {% endif %}
                 <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku, return_to=current_url) }}">Edit</a>
               </div>
@@ -160,6 +172,8 @@
               <span class="pill canceled">Canceled</span>
             {% elif needs_sold_review %}
               <span class="pill review">Sold Review</span>
+            {% elif item.pending_shipping %}
+              <span class="pill pending">Pending Shipping</span>
             {% elif item.sold %}
               <span class="pill sold">Sold</span>
             {% elif is_listed %}
@@ -204,6 +218,13 @@
             <a class="btn secondary" href="{{ url_for('item_detail', sku=item.sku, return_to=current_url) }}">Open</a>
             {% if ebay_url %}
               <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
+            {% endif %}
+            {% if item.pending_shipping %}
+              <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}" style="margin:0;">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="return_to" value="{{ current_url }}">
+                <button class="btn secondary" type="submit">Shipped</button>
+              </form>
             {% endif %}
             <a class="btn secondary" href="{{ url_for('item_edit', sku=item.sku, return_to=current_url) }}">Edit</a>
           </div>

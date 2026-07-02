@@ -318,6 +318,24 @@ def _sold_review_expr():
     return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False)) & (Item.canceled.is_(False))
 
 
+def _pending_shipping_expr():
+    return (
+        (Item.sold.is_(True)) &
+        (Item.sold_confirmed.is_(True)) &
+        (Item.pending_shipping.is_(True)) &
+        (Item.canceled.is_(False))
+    )
+
+
+def _shipped_sold_expr():
+    return (
+        (Item.sold.is_(True)) &
+        (Item.sold_confirmed.is_(True)) &
+        (Item.pending_shipping.is_(False)) &
+        (Item.canceled.is_(False))
+    )
+
+
 def _is_canceled_order_row(row: dict) -> bool:
     cancel_words = ("cancel", "cancelled", "canceled")
     status_words = ("status", "cancel", "refund")
@@ -367,6 +385,8 @@ def _copy_missing_item_fields(target: Item, source: Item):
         "buyer_paid_amount",
         "date_listed",
         "date_sold",
+        "date_shipped",
+        "tracking_number",
     ]
 
     copied = []
@@ -376,6 +396,10 @@ def _copy_missing_item_fields(target: Item, source: Item):
             copied.append(field)
 
     target.sold = bool(target.sold or source.sold)
+    target.sold_confirmed = bool(target.sold_confirmed or source.sold_confirmed)
+    target.pending_shipping = bool(target.pending_shipping or source.pending_shipping)
+    if target.tracking_number or target.date_shipped:
+        target.pending_shipping = False
     return copied
 
 
@@ -402,6 +426,98 @@ def _set_if_missing(item: Item, field: str, value):
         setattr(item, field, value)
         return True
     return False
+
+
+def _import_value_display(value):
+    if value in (None, ""):
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, float):
+        return f"${value:.2f}"
+    return str(value)
+
+
+def _preview_fill_if_missing(item: Item, field: str, label: str, value):
+    if value in (None, ""):
+        return None
+    current = getattr(item, field)
+    if current in (None, ""):
+        return f"{label}: blank → {_import_value_display(value)}"
+    return None
+
+
+def _import_change_preview(item: Item, report_kind: str, values: dict):
+    if item is None:
+        return ["Create new item"] if report_kind != "expenses" else []
+
+    changes = []
+    if report_kind == "expenses":
+        change = _preview_fill_if_missing(item, "shipping", "Actual shipping", values.get("shipping_cost"))
+        if change:
+            changes.append(change)
+        if not item.sold:
+            changes.append("Mark sold → Sold Review")
+        if item.sold_confirmed and changes:
+            changes.append("Move confirmed sold → Sold Review")
+        return changes
+
+    if report_kind == "orders":
+        if values.get("is_canceled_order"):
+            if item.sold or item.sold_confirmed or not item.canceled:
+                changes.append("Mark canceled, not sold")
+            change = _preview_fill_if_missing(item, "ebay_order_number", "eBay order #", values.get("order_number"))
+            if change:
+                changes.append(change)
+            return changes
+
+        if not item.sold:
+            changes.append("Mark sold → Sold Review")
+            if item.canceled:
+                changes.append("Clear canceled flag")
+            if values.get("tracking_number") or values.get("date_shipped"):
+                if item.pending_shipping:
+                    changes.append("Mark shipped / clear Pending Shipping")
+                change = _preview_fill_if_missing(item, "tracking_number", "Tracking #", values.get("tracking_number"))
+                if change:
+                    changes.append(change)
+                change = _preview_fill_if_missing(item, "date_shipped", "Date shipped", values.get("date_shipped"))
+                if change:
+                    changes.append(change)
+            for field, label, key in [
+                ("platform", "Platform", "platform"),
+                ("sale_price", "Sale price", "price"),
+                ("ebay_item_number", "eBay item #", "ebay_item_number"),
+                ("ebay_item_url", "eBay item URL", "ebay_item_url"),
+                ("ebay_custom_label", "Custom label", "custom_sku"),
+                ("date_sold", "Date sold", "sale_date"),
+                ("buyer_paid_amount", "Buyer paid before tax", "buyer_paid_amount"),
+                ("ebay_order_number", "eBay order #", "order_number"),
+        ]:
+                change = _preview_fill_if_missing(item, field, label, values.get(key))
+                if change:
+                    changes.append(change)
+        if item.sold_confirmed and changes:
+            changes.append("Move confirmed sold → Sold Review")
+        return changes
+
+    for field, label, key in [
+        ("platform", "Platform", "platform"),
+        ("sale_price", "Sale price", "price"),
+        ("date_listed", "Date listed", "date_listed"),
+        ("ebay_item_number", "eBay item #", "ebay_item_number"),
+        ("ebay_item_url", "eBay item URL", "ebay_item_url"),
+        ("ebay_custom_label", "Custom label", "custom_sku"),
+        ("ebay_category", "eBay category", "category"),
+        ("category", "Category", "category"),
+        ("ebay_condition", "Condition", "condition"),
+    ]:
+        change = _preview_fill_if_missing(item, field, label, values.get(key))
+        if change:
+            changes.append(change)
+    if item.canceled:
+        changes.append("Clear canceled flag")
+    return changes
 
 
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
@@ -449,8 +565,14 @@ def create_app():
                 _sqlite_add_column("items", "barcode", "VARCHAR(64)")
             if not _sqlite_column_exists("items", "sold_confirmed"):
                 _sqlite_add_column("items", "sold_confirmed", "BOOLEAN DEFAULT 0 NOT NULL")
+            if not _sqlite_column_exists("items", "pending_shipping"):
+                _sqlite_add_column("items", "pending_shipping", "BOOLEAN DEFAULT 0 NOT NULL")
             if not _sqlite_column_exists("items", "canceled"):
                 _sqlite_add_column("items", "canceled", "BOOLEAN DEFAULT 0 NOT NULL")
+            if not _sqlite_column_exists("items", "tracking_number"):
+                _sqlite_add_column("items", "tracking_number", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "date_shipped"):
+                _sqlite_add_column("items", "date_shipped", "DATE")
             if not _sqlite_column_exists("items", "ebay_item_number"):
                 _sqlite_add_column("items", "ebay_item_number", "VARCHAR(32)")
             if not _sqlite_column_exists("items", "ebay_order_number"):
@@ -572,9 +694,12 @@ def create_app():
             "ebay_fee",
             "sold",
             "sold_confirmed",
+            "pending_shipping",
             "canceled",
             "date_listed",
             "date_sold",
+            "date_shipped",
+            "tracking_number",
             "notes",
             "image_filenames",
         ])
@@ -608,9 +733,12 @@ def create_app():
                 it.ebay_fee if it.ebay_fee is not None else "",
                 "Y" if getattr(it, "sold", False) else "N",
                 "Y" if getattr(it, "sold_confirmed", False) else "N",
+                "Y" if getattr(it, "pending_shipping", False) else "N",
                 "Y" if getattr(it, "canceled", False) else "N",
                 it.date_listed.isoformat() if it.date_listed else "",
                 it.date_sold.isoformat() if it.date_sold else "",
+                it.date_shipped.isoformat() if it.date_shipped else "",
+                it.tracking_number or "",
                 (it.notes or "").replace("\r", " ").replace("\n", " ").strip(),
                 image_names,
             ])
@@ -649,6 +777,7 @@ def create_app():
             return redirect(url_for("import_ebay"))
 
         existing = Item.query.all()
+        existing_by_sku = {it.sku: it for it in existing}
         existing_norm = [
             (
                 it.sku,
@@ -686,6 +815,7 @@ def create_app():
             for i, (order_number, shipping_total) in enumerate(sorted(grouped.items())):
                 shipping_cost = abs(shipping_total)
                 item = existing_by_order.get(order_number)
+                expected_changes = _import_change_preview(item, "expenses", {"shipping_cost": shipping_cost})
                 rows.append({
                     "row_idx": i,
                     "order_number": order_number,
@@ -693,7 +823,8 @@ def create_app():
                     "flagged": item is not None,
                     "best_match_id": item.sku if item else None,
                     "best_match_title": item.item_name if item else None,
-                    "default_action": "update" if item else "skip",
+                    "expected_changes": expected_changes,
+                    "default_action": "update" if item and expected_changes else "skip",
                 })
 
             if not rows:
@@ -713,6 +844,19 @@ def create_app():
                 order_number = (r.get("Order Number") or "").strip()
                 quantity = parse_int(r.get("Quantity")) or 1
                 is_canceled_order = _is_canceled_order_row(r)
+                tracking_number = (r.get("Tracking Number") or "").strip()
+                date_shipped = _parse_ebay_date(r.get("Shipped On Date") or "")
+                buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
+                total_price = parse_float(r.get("Total Price"))
+                ebay_collected_tax = parse_float(r.get("eBay Collected Tax")) or 0.0
+                ebay_collected_charges = parse_float(r.get("eBay Collected Charges")) or 0.0
+                buyer_paid_amount = (
+                    total_price - ebay_collected_tax - ebay_collected_charges
+                    if total_price is not None
+                    else price + buyer_shipping_paid
+                )
+                category = None
+                condition = None
             else:
                 title = (r.get("Title") or "").strip()
                 ebay_item_number = (r.get("Item number") or "").strip()
@@ -722,6 +866,11 @@ def create_app():
                 order_number = ""
                 quantity = parse_int(r.get("Available quantity")) or 1
                 is_canceled_order = False
+                tracking_number = ""
+                date_shipped = None
+                buyer_paid_amount = None
+                category = (r.get("eBay category 1 name") or "").strip() or None
+                condition = (r.get("Condition") or "").strip() or None
 
             if not title:
                 continue
@@ -750,6 +899,24 @@ def create_app():
                     match_reason = "Similar title"
 
             flagged = best is not None and best_score >= 0.86
+            matched_item = existing_by_sku.get(best[0]) if flagged and best else None
+            values = {
+                "platform": "eBay",
+                "price": price if price else None,
+                "date_listed": date_display if report_kind != "orders" else None,
+                "sale_date": date_display if report_kind == "orders" else None,
+                "ebay_item_number": ebay_item_number,
+                "ebay_item_url": f"https://www.ebay.com/itm/{ebay_item_number}" if ebay_item_number else None,
+                "custom_sku": custom_sku,
+                "category": category,
+                "condition": condition,
+                "order_number": order_number,
+                "buyer_paid_amount": buyer_paid_amount,
+                "is_canceled_order": is_canceled_order,
+                "tracking_number": tracking_number,
+                "date_shipped": date_shipped,
+            }
+            expected_changes = _import_change_preview(matched_item, report_kind, values)
             rows.append({
                 "row_idx": i,
                 "title": title,
@@ -765,7 +932,8 @@ def create_app():
                 "best_match_title": best[1] if best else None,
                 "best_score": round(best_score, 3),
                 "match_reason": match_reason,
-                "default_action": "update" if flagged else ("skip" if is_canceled_order else "create"),
+                "expected_changes": expected_changes,
+                "default_action": "update" if flagged and expected_changes else ("skip" if flagged or is_canceled_order else "create"),
             })
 
         if not rows:
@@ -846,6 +1014,8 @@ def create_app():
                 order_number = (r.get("Order Number") or "").strip()
                 custom_sku = (r.get("Custom Label") or "").strip()
                 is_canceled_order = _is_canceled_order_row(r)
+                tracking_number = (r.get("Tracking Number") or "").strip()
+                date_shipped = _parse_ebay_date(r.get("Shipped On Date") or "")
                 price = parse_float(r.get("Sold For")) or 0.0
                 buyer_shipping_paid = parse_float(r.get("Shipping And Handling")) or 0.0
                 total_price = parse_float(r.get("Total Price"))
@@ -867,6 +1037,8 @@ def create_app():
                 order_number = ""
                 custom_sku = (r.get("Custom label (SKU)") or "").strip()
                 is_canceled_order = False
+                tracking_number = ""
+                date_shipped = None
                 price = parse_float(r.get("Current price")) or parse_float(r.get("Start price")) or 0.0
                 buyer_paid_amount = None
                 buyer_shipping_paid = None
@@ -939,6 +1111,7 @@ def create_app():
                         changed = True
                     item.sold = False
                     item.sold_confirmed = False
+                    item.pending_shipping = False
                     item.canceled = True
                     changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
                     if changed:
@@ -955,7 +1128,13 @@ def create_app():
                     changed = _set_if_missing(item, "date_sold", sale_date) or changed
                     changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
                     changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
-                    if changed and item.sold_confirmed:
+                    review_changed = changed
+                    changed = _set_if_missing(item, "tracking_number", tracking_number) or changed
+                    changed = _set_if_missing(item, "date_shipped", date_shipped) or changed
+                    if (tracking_number or date_shipped) and item.pending_shipping:
+                        item.pending_shipping = False
+                        changed = True
+                    if review_changed and item.sold_confirmed:
                         item.sold_confirmed = False
                     if changed:
                         _append_note_tag(item, f"eBayOrder:{order_number}")
@@ -1208,6 +1387,40 @@ def create_app():
     def uploaded_file(filename):
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
+    def _public_store_query():
+        return (
+            Item.query
+            .filter(Item.sold.is_(False), Item.canceled.is_(False))
+            .filter(Item.ebay_item_number.isnot(None), Item.ebay_item_number != "")
+        )
+
+    @app.get("/store")
+    def public_store():
+        q = request.args.get("q", "").strip()
+        query = _public_store_query()
+        if q:
+            like = f"%{q}%"
+            query = query.filter(
+                (Item.item_name.ilike(like)) |
+                (Item.category.ilike(like)) |
+                (Item.ebay_category.ilike(like))
+            )
+        items = query.order_by(Item.date_listed.desc(), Item.sku.desc()).all()
+        return render_template("store.html", items=items, q=q)
+
+    @app.get("/store/image/<int:image_id>")
+    def public_store_image(image_id: int):
+        image = ItemImage.query.get_or_404(image_id)
+        item = image.item
+        if (
+            not item or
+            item.sold or
+            item.canceled or
+            not (item.ebay_item_number or "").strip()
+        ):
+            abort(404)
+        return send_from_directory(app.config["UPLOAD_FOLDER"], image.filename)
+
     @app.route("/")
     @auth_required
     def index():
@@ -1225,7 +1438,9 @@ def create_app():
         )
 
         if status_filter == "sold":
-            query = query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True), Item.canceled.is_(False))
+            query = query.filter(_shipped_sold_expr())
+        elif status_filter == "pending_shipping":
+            query = query.filter(_pending_shipping_expr())
         elif status_filter == "sold_review":
             query = query.filter(_sold_review_expr())
         elif status_filter == "not_listed":
@@ -1271,7 +1486,8 @@ def create_app():
             "not_listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr).count(),
             "listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr).count(),
             "sold_review": Item.query.filter(_sold_review_expr()).count(),
-            "sold": Item.query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True), Item.canceled.is_(False)).count(),
+            "pending_shipping": Item.query.filter(_pending_shipping_expr()).count(),
+            "sold": Item.query.filter(_shipped_sold_expr()).count(),
             "canceled": Item.query.filter(Item.canceled.is_(True)).count(),
         }
 
@@ -1366,6 +1582,7 @@ def create_app():
         listed_items = Item.query.filter(active_unsold_expr, listed_expr).count()
         not_listed_items = Item.query.filter(active_unsold_expr).filter(~listed_expr).count()
         sold_review_items = Item.query.filter(_sold_review_expr()).count()
+        pending_shipping_items = Item.query.filter(_pending_shipping_expr()).count()
         canceled_items = Item.query.filter(Item.canceled.is_(True)).count()
 
         unsold_inventory_cost = float(
@@ -1592,7 +1809,8 @@ def create_app():
             {"label": "Listed", "count": listed_items, "class": "listed", "href": url_for("index", status="listed")},
             {"label": "Not listed", "count": not_listed_items, "class": "not-listed", "href": url_for("index", status="not_listed")},
             {"label": "Sold review", "count": sold_review_items, "class": "review", "href": url_for("index", status="sold_review")},
-            {"label": "Confirmed sold", "count": sold_items, "class": "sold", "href": url_for("index", status="sold")},
+            {"label": "Pending shipping", "count": pending_shipping_items, "class": "pending", "href": url_for("index", status="pending_shipping")},
+            {"label": "Shipped sold", "count": Item.query.filter(_shipped_sold_expr()).count(), "class": "sold", "href": url_for("index", status="sold")},
             {"label": "Canceled", "count": canceled_items, "class": "canceled", "href": url_for("index", status="canceled")},
         ]
         pipeline_total = sum(p["count"] for p in pipeline_items) or 1
@@ -1760,6 +1978,7 @@ def create_app():
             "listed_items": listed_items,
             "not_listed_items": not_listed_items,
             "sold_review_items": sold_review_items,
+            "pending_shipping_items": pending_shipping_items,
             "canceled_items": canceled_items,
             "sold_items": sold_items,
             "sold_rate_pct": sold_rate_pct,
@@ -1972,9 +2191,25 @@ def create_app():
         return_to = _safe_return_url(request.form.get("return_to"))
         item.sold = True
         item.sold_confirmed = True
+        item.pending_shipping = True
         item.canceled = False
         db.session.commit()
-        flash(f"Confirmed SKU #{item.sku} as sold.", "success")
+        flash(f"Confirmed SKU #{item.sku} as sold. Added to Pending Shipping.", "success")
+        return redirect(return_to)
+
+    @app.route("/item/<int:sku>/mark-shipped", methods=["POST"])
+    @auth_required
+    def item_mark_shipped(sku: int):
+        item = Item.query.get_or_404(sku)
+        return_to = _safe_return_url(request.form.get("return_to"))
+        item.sold = True
+        item.sold_confirmed = True
+        item.pending_shipping = False
+        item.canceled = False
+        if not item.date_shipped:
+            item.date_shipped = datetime.utcnow().date()
+        db.session.commit()
+        flash(f"Marked SKU #{item.sku} as shipped.", "success")
         return redirect(return_to)
 
     @app.route("/item/<int:sku>/edit", methods=["GET", "POST"])
@@ -2003,15 +2238,22 @@ def create_app():
 
             item.date_listed = parse_date(request.form.get("date_listed"))
             item.date_sold = parse_date(request.form.get("date_sold"))
+            item.date_shipped = parse_date(request.form.get("date_shipped"))
+            item.tracking_number = request.form.get("tracking_number", "").strip() or None
             item.sold = (request.form.get("sold") == "Y")
+            item.pending_shipping = (request.form.get("pending_shipping") == "Y")
             item.canceled = (request.form.get("canceled") == "Y")
             if item.canceled:
                 item.sold = False
                 item.sold_confirmed = False
+                item.pending_shipping = False
             elif not item.sold:
                 item.sold_confirmed = False
+                item.pending_shipping = False
             else:
                 item.canceled = False
+                if item.tracking_number or item.date_shipped:
+                    item.pending_shipping = False
 
             if not item.item_name:
                 flash("Item Name is required.", "error")

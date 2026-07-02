@@ -248,11 +248,23 @@
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>Date Listed</label><input type="date" name="date_listed" value="{{ item.date_listed or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Date Sold</label><input type="date" name="date_sold" value="{{ item.date_sold or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Date Shipped</label><input type="date" name="date_shipped" value="{{ item.date_shipped or '' }}"></div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <div style="flex:1; min-width:220px;"><label>Tracking #</label><input name="tracking_number" value="{{ item.tracking_number or '' }}"></div>
       <div style="flex:1; min-width:220px;">
         <label>Sold (Y/N)</label>
         <select name="sold">
           <option value="N" {% if not item.sold %}selected{% endif %}>N</option>
           <option value="Y" {% if item.sold %}selected{% endif %}>Y</option>
+        </select>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Pending Shipping (Y/N)</label>
+        <select name="pending_shipping">
+          <option value="N" {% if not item.pending_shipping %}selected{% endif %}>N</option>
+          <option value="Y" {% if item.pending_shipping %}selected{% endif %}>Y</option>
         </select>
       </div>
       <div style="flex:1; min-width:220px;">

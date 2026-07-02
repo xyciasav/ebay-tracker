@@ -73,17 +73,18 @@
               <th style="width:150px;">Custom Label</th>
             {% endif %}
             <th style="width:260px;">Match</th>
+            <th style="width:280px;">Expected Changes</th>
           </tr>
         </thead>
         <tbody>
         {% for r in rows %}
           <tr>
             <td>
-              <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}">
+              <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}" data-has-changes="{{ '1' if r.expected_changes else '0' }}">
                 {% if r.flagged %}
                   <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
                   {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
-                  <option value="skip">Skip</option>
+                  <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% else %}
                   {% if report_kind != "expenses" and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
                   <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
@@ -120,6 +121,22 @@
                 No existing match found
               {% endif %}
             </td>
+
+            <td class="small">
+              {% if r.expected_changes %}
+                <ul style="margin:0; padding-left:18px;">
+                  {% for change in r.expected_changes %}
+                    <li>{{ change }}</li>
+                  {% endfor %}
+                </ul>
+              {% elif r.flagged %}
+                <span class="pill">No missing fields to fill</span>
+              {% elif report_kind == "expenses" %}
+                <span class="pill">No matching order</span>
+              {% else %}
+                <span class="pill">New item if created</span>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
         </tbody>
@@ -140,7 +157,9 @@
         const action = btn.getAttribute("data-bulk-action");
         document.querySelectorAll(".import-decision").forEach((select) => {
           const hasMatch = select.getAttribute("data-has-match") === "1";
+          const hasChanges = select.getAttribute("data-has-changes") === "1";
           if (action === "update" && !hasMatch) return;
+          if (action === "update" && !hasChanges) return;
           if ([...select.options].some((opt) => opt.value === action)) {
             select.value = action;
           }
