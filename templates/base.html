@@ -275,9 +275,9 @@
       box-shadow: 0 14px 35px rgba(15, 23, 42, .10);
     }
     .item-photo{
-      aspect-ratio: 4 / 3;
-      height:auto;
-      min-height:190px;
+      height:190px;
+      flex:0 0 190px;
+      position:relative;
       background:var(--soft);
       display:flex;
       align-items:center;
@@ -288,6 +288,8 @@
       overflow:hidden;
     }
     .item-photo img{
+      position:absolute;
+      inset:0;
       width:100%;
       height:100%;
       object-fit:cover;
@@ -444,7 +446,7 @@
       .page-hero{ display:block; }
       .toolbar{ justify-content:flex-start; margin-top:12px; }
       .inventory-grid{ grid-template-columns: 1fr; }
-      .item-photo{ min-height:220px; }
+      .item-photo{ height:220px; flex-basis:220px; }
       .item-hero{ grid-template-columns: 1fr; }
       .item-hero-photo{ min-height:240px; }
     }

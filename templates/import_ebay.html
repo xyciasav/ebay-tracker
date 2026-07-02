@@ -5,8 +5,8 @@
 <div class="card">
   <h2 style="margin:0 0 8px 0;">Import eBay CSV</h2>
   <div class="small">
-    Upload either an eBay <b>All active listings</b> report or an <b>All orders</b> report.
-    Active listings add/update listed inventory; orders mark matching items as sold.
+    Upload an eBay <b>All active listings</b>, <b>All orders</b>, or <b>Expenses</b> report.
+    Active listings add/update inventory; orders send items to Sold Review; expenses fill actual shipping costs.
   </div>
 
   {% if step == "upload" %}
@@ -29,7 +29,11 @@
       </div>
       <div class="card">
         <b>Orders</b>
-        <div class="small">Matches by eBay item number first, then label/title, and marks matching dashboard items sold.</div>
+        <div class="small">Matches by eBay item number first, then label/title, and sends sold items to Sold Review.</div>
+      </div>
+      <div class="card">
+        <b>Expenses</b>
+        <div class="small">Pulls shipping label costs by order number and updates actual shipping cost only.</div>
       </div>
     </div>
 
@@ -42,19 +46,32 @@
 
       <div class="small" style="margin-bottom:10px;">
         Detected report:
-        <b>{% if report_kind == "orders" %}Orders{% else %}Active listings{% endif %}</b>.
+        <b>{% if report_kind == "orders" %}Orders{% elif report_kind == "expenses" %}Expenses{% else %}Active listings{% endif %}</b>.
         Review the actions before importing.
+      </div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+        <button type="button" class="btn secondary" data-bulk-action="update">Update matched</button>
+        {% if report_kind != "expenses" %}
+          <button type="button" class="btn secondary" data-bulk-action="create">Create all new</button>
+        {% endif %}
+        <button type="button" class="btn secondary" data-bulk-action="skip">Skip all</button>
       </div>
 
       <table>
         <thead>
           <tr>
             <th style="width:110px;">Action</th>
-            <th>Title</th>
-            <th style="width:120px;">eBay Item #</th>
-            <th style="width:110px;">Price</th>
-            <th style="width:130px;">Date</th>
-            <th style="width:150px;">Custom Label</th>
+            {% if report_kind == "expenses" %}
+              <th>Order</th>
+              <th style="width:140px;">Shipping Cost</th>
+            {% else %}
+              <th>Title</th>
+              <th style="width:120px;">eBay Item #</th>
+              <th style="width:110px;">Price</th>
+              <th style="width:130px;">Date</th>
+              <th style="width:150px;">Custom Label</th>
+            {% endif %}
             <th style="width:260px;">Match</th>
           </tr>
         </thead>
@@ -62,35 +79,40 @@
         {% for r in rows %}
           <tr>
             <td>
-              <select name="decision_{{ r.row_idx }}">
+              <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}">
                 {% if r.flagged %}
                   <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
-                  <option value="create">Create</option>
+                  {% if report_kind != "expenses" %}<option value="create">Create</option>{% endif %}
                   <option value="skip">Skip</option>
                 {% else %}
-                  <option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>
+                  {% if report_kind != "expenses" %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
                   <option value="skip">Skip</option>
                 {% endif %}
               </select>
               <input type="hidden" name="matchid_{{ r.row_idx }}" value="{{ r.best_match_id or '' }}" />
             </td>
 
-            <td>
-              {{ r.title }}
-              {% if report_kind == "orders" and r.order_number %}
-                <div class="small">Order {{ r.order_number }}</div>
-              {% endif %}
-            </td>
-            <td>{{ r.ebay_item_number }}</td>
-            <td>${{ "%.2f"|format(r.price) }}</td>
-            <td>{{ r.date_display or "" }}</td>
-            <td>{{ r.custom_sku }}</td>
+            {% if report_kind == "expenses" %}
+              <td>{{ r.order_number }}</td>
+              <td>${{ "%.2f"|format(r.shipping_cost) }}</td>
+            {% else %}
+              <td>
+                {{ r.title }}
+                {% if report_kind == "orders" and r.order_number %}
+                  <div class="small">Order {{ r.order_number }}</div>
+                {% endif %}
+              </td>
+              <td>{{ r.ebay_item_number }}</td>
+              <td>${{ "%.2f"|format(r.price) }}</td>
+              <td>{{ r.date_display or "" }}</td>
+              <td>{{ r.custom_sku }}</td>
+            {% endif %}
 
             <td class="small">
               {% if r.flagged %}
-                <b>{{ r.match_reason }}</b><br/>
+                <b>{{ r.match_reason or "Matched item" }}</b><br/>
                 {{ r.best_match_title }}<br/>
-                Score: {{ r.best_score }}
+                {% if r.best_score %}Score: {{ r.best_score }}{% endif %}
               {% else %}
                 No existing match found
               {% endif %}
@@ -108,4 +130,20 @@
     </form>
   {% endif %}
 </div>
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-bulk-action]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const action = btn.getAttribute("data-bulk-action");
+        document.querySelectorAll(".import-decision").forEach((select) => {
+          const hasMatch = select.getAttribute("data-has-match") === "1";
+          if (action === "update" && !hasMatch) return;
+          if ([...select.options].some((opt) => opt.value === action)) {
+            select.value = action;
+          }
+        });
+      });
+    });
+  });
+</script>
 {% endblock %}

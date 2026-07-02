@@ -276,7 +276,7 @@ def _detect_ebay_csv(raw: str):
     """
     eBay exports are not consistent: the orders report can include blank preamble rows
     before the actual header. Return (kind, headers, data_rows), where kind is
-    "active" or "orders".
+    "active", "orders", or "expenses".
     """
     parsed = list(csv.reader(io.StringIO(raw)))
     for idx, row in enumerate(parsed):
@@ -286,6 +286,8 @@ def _detect_ebay_csv(raw: str):
             return "active", headers, parsed[idx + 1:]
         if {"Order Number", "Item Number", "Item Title", "Sold For", "Sale Date"}.issubset(header_set):
             return "orders", headers, parsed[idx + 1:]
+        if {"Expense date", "Expense grouping", "Expense category", "Expense type", "Order number", "Net expense"}.issubset(header_set):
+            return "expenses", headers, parsed[idx + 1:]
     return None, [], []
 
 
@@ -313,16 +315,7 @@ def _append_note_tag(item, tag: str):
 
 
 def _sold_review_expr():
-    return (
-        (Item.sold.is_(True)) &
-        (
-            Item.cog.is_(None) |
-            Item.shipping.is_(None) |
-            Item.ad_fee.is_(None) |
-            Item.ebay_fee.is_(None) |
-            Item.buyer_paid_amount.is_(None)
-        )
-    )
+    return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False))
 
 
 def _safe_return_url(value: str):
@@ -381,6 +374,15 @@ def _merge_notes(target: Item, source: Item):
     target.notes = "\n\n---\n".join(pieces)
 
 
+def _set_if_missing(item: Item, field: str, value):
+    if value in (None, ""):
+        return False
+    if getattr(item, field) in (None, ""):
+        setattr(item, field, value)
+        return True
+    return False
+
+
 def _sqlite_add_column(table_name: str, column_name: str, column_type_sql: str):
     db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type_sql}"))
     db.session.commit()
@@ -424,6 +426,8 @@ def create_app():
                 _sqlite_add_column("items", "source_location", "VARCHAR(120)")
             if not _sqlite_column_exists("items", "barcode"):
                 _sqlite_add_column("items", "barcode", "VARCHAR(64)")
+            if not _sqlite_column_exists("items", "sold_confirmed"):
+                _sqlite_add_column("items", "sold_confirmed", "BOOLEAN DEFAULT 0 NOT NULL")
             if not _sqlite_column_exists("items", "ebay_item_number"):
                 _sqlite_add_column("items", "ebay_item_number", "VARCHAR(32)")
             if not _sqlite_column_exists("items", "ebay_order_number"):
@@ -544,6 +548,7 @@ def create_app():
             "ad_fee",
             "ebay_fee",
             "sold",
+            "sold_confirmed",
             "date_listed",
             "date_sold",
             "notes",
@@ -578,6 +583,7 @@ def create_app():
                 it.ad_fee if it.ad_fee is not None else "",
                 it.ebay_fee if it.ebay_fee is not None else "",
                 "Y" if getattr(it, "sold", False) else "N",
+                "Y" if getattr(it, "sold_confirmed", False) else "N",
                 it.date_listed.isoformat() if it.date_listed else "",
                 it.date_sold.isoformat() if it.date_sold else "",
                 (it.notes or "").replace("\r", " ").replace("\n", " ").strip(),
@@ -628,6 +634,48 @@ def create_app():
             )
             for it in existing
         ]
+        existing_by_order = {
+            (getattr(it, "ebay_order_number", None) or "").strip(): it
+            for it in existing
+            if (getattr(it, "ebay_order_number", None) or "").strip()
+        }
+
+        if report_kind == "expenses":
+            grouped = {}
+            for r in parsed_rows:
+                grouping = (r.get("Expense grouping") or "").strip().lower()
+                category = (r.get("Expense category") or "").strip().lower()
+                expense_type = (r.get("Expense type") or "").strip().lower()
+                order_number = (r.get("Order number") or "").strip()
+                if not order_number or order_number == "--":
+                    continue
+                if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                    continue
+                amount = parse_float(r.get("Net expense"))
+                if amount is None:
+                    continue
+                grouped.setdefault(order_number, 0.0)
+                grouped[order_number] += amount
+
+            rows = []
+            for i, (order_number, shipping_total) in enumerate(sorted(grouped.items())):
+                shipping_cost = abs(shipping_total)
+                item = existing_by_order.get(order_number)
+                rows.append({
+                    "row_idx": i,
+                    "order_number": order_number,
+                    "shipping_cost": shipping_cost,
+                    "flagged": item is not None,
+                    "best_match_id": item.sku if item else None,
+                    "best_match_title": item.item_name if item else None,
+                    "default_action": "update" if item else "skip",
+                })
+
+            if not rows:
+                flash("No shipping label expenses with order numbers were found in that file.", "warning")
+                return redirect(url_for("import_ebay"))
+
+            return render_template("import_ebay.html", step="preview", rows=rows, raw_csv=raw, report_kind=report_kind)
 
         rows = []
         for i, r in enumerate(parsed_rows):
@@ -716,6 +764,53 @@ def create_app():
         updated = 0
         skipped = 0
 
+        if report_kind == "expenses":
+            grouped = {}
+            for r in parsed_rows:
+                grouping = (r.get("Expense grouping") or "").strip().lower()
+                category = (r.get("Expense category") or "").strip().lower()
+                expense_type = (r.get("Expense type") or "").strip().lower()
+                order_number = (r.get("Order number") or "").strip()
+                if not order_number or order_number == "--":
+                    continue
+                if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                    continue
+                amount = parse_float(r.get("Net expense"))
+                if amount is None:
+                    continue
+                grouped.setdefault(order_number, 0.0)
+                grouped[order_number] += amount
+
+            for i, (order_number, shipping_total) in enumerate(sorted(grouped.items())):
+                shipping_cost = abs(shipping_total)
+                decision = request.form.get(f"decision_{i}", "skip")
+                if decision == "skip":
+                    skipped += 1
+                    continue
+
+                match_id = request.form.get(f"matchid_{i}")
+                item = Item.query.get(int(match_id)) if match_id else None
+                if not item:
+                    skipped += 1
+                    continue
+
+                changed = False
+                changed = _set_if_missing(item, "shipping", shipping_cost) or changed
+                if not item.sold:
+                    item.sold = True
+                    changed = True
+                if changed and item.sold_confirmed:
+                    item.sold_confirmed = False
+                if changed:
+                    _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
+                    updated += 1
+                else:
+                    skipped += 1
+
+            db.session.commit()
+            flash(f"Imported eBay expense shipping. Updated: {updated}, Skipped: {skipped}.", "success")
+            return redirect(url_for("index", status="sold_review"))
+
         for i, r in enumerate(parsed_rows):
             if report_kind == "orders":
                 title = (r.get("Item Title") or "").strip()
@@ -772,40 +867,64 @@ def create_app():
                 db.session.add(item)
                 created += 1
 
-            item.item_name = title
-            item.platform = item.platform or "eBay"
-            if price:
-                item.sale_price = price
-            if date_listed:
-                item.date_listed = date_listed
-            if ebay_item_number:
-                item.ebay_item_number = ebay_item_number
-                item.ebay_item_url = item.ebay_item_url or f"https://www.ebay.com/itm/{ebay_item_number}"
-            if custom_sku:
-                item.ebay_custom_label = custom_sku
-            if category:
-                item.ebay_category = category
-                item.category = item.category or category
-            if condition:
-                item.ebay_condition = condition
+            changed = decision == "create"
+
+            if decision == "create":
+                item.item_name = title
+                item.platform = "eBay"
+                if price:
+                    item.sale_price = price
+                if date_listed:
+                    item.date_listed = date_listed
+                if ebay_item_number:
+                    item.ebay_item_number = ebay_item_number
+                    item.ebay_item_url = f"https://www.ebay.com/itm/{ebay_item_number}"
+                if custom_sku:
+                    item.ebay_custom_label = custom_sku
+                if category:
+                    item.ebay_category = category
+                    item.category = category
+                if condition:
+                    item.ebay_condition = condition
+            else:
+                changed = _set_if_missing(item, "platform", "eBay") or changed
+                changed = _set_if_missing(item, "sale_price", price if price else None) or changed
+                changed = _set_if_missing(item, "date_listed", date_listed) or changed
+                changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
+                if ebay_item_number:
+                    changed = _set_if_missing(item, "ebay_item_url", f"https://www.ebay.com/itm/{ebay_item_number}") or changed
+                changed = _set_if_missing(item, "ebay_custom_label", custom_sku) or changed
+                changed = _set_if_missing(item, "ebay_category", category) or changed
+                changed = _set_if_missing(item, "category", category) or changed
+                changed = _set_if_missing(item, "ebay_condition", condition) or changed
 
             if report_kind == "orders":
-                item.sold = True
-                item.date_sold = sale_date or item.date_sold
-                item.buyer_paid_amount = buyer_paid_amount if buyer_paid_amount is not None else item.buyer_paid_amount
-                item.ebay_order_number = order_number or item.ebay_order_number
-                _append_note_tag(item, f"eBayOrder:{order_number}")
-                _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
-                _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
-                _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
-                if ebay_collected_charges:
-                    _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
+                if not item.sold:
+                    item.sold = True
+                    changed = True
+                changed = _set_if_missing(item, "date_sold", sale_date) or changed
+                changed = _set_if_missing(item, "buyer_paid_amount", buyer_paid_amount) or changed
+                changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                if changed and item.sold_confirmed:
+                    item.sold_confirmed = False
+                if changed:
+                    _append_note_tag(item, f"eBayOrder:{order_number}")
+                    _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
+                    _append_note_tag(item, f"eBayBuyerShippingPaid:{buyer_shipping_paid:.2f}")
+                    _append_note_tag(item, f"eBayCollectedTax:{ebay_collected_tax:.2f}")
+                    if ebay_collected_charges:
+                        _append_note_tag(item, f"eBayCollectedCharges:{ebay_collected_charges:.2f}")
             else:
                 item.sold = False if item.sold is None else item.sold
 
-            _append_note_tag(item, f"eBaySKU:{custom_sku}")
             if decision == "update":
-                updated += 1
+                if changed:
+                    _append_note_tag(item, f"eBaySKU:{custom_sku}")
+                    updated += 1
+                else:
+                    skipped += 1
+            elif decision == "create":
+                _append_note_tag(item, f"eBaySKU:{custom_sku}")
 
         db.session.commit()
         label = "orders" if report_kind == "orders" else "active listings"
@@ -1013,7 +1132,7 @@ def create_app():
         )
 
         if status_filter == "sold":
-            query = query.filter(Item.sold.is_(True))
+            query = query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True))
         elif status_filter == "sold_review":
             query = query.filter(_sold_review_expr())
         elif status_filter == "not_listed":
@@ -1057,7 +1176,7 @@ def create_app():
             "not_listed": Item.query.filter(Item.sold.is_(False)).filter(~listed_expr).count(),
             "listed": Item.query.filter(Item.sold.is_(False)).filter(listed_expr).count(),
             "sold_review": Item.query.filter(_sold_review_expr()).count(),
-            "sold": Item.query.filter(Item.sold.is_(True)).count(),
+            "sold": Item.query.filter(Item.sold.is_(True), Item.sold_confirmed.is_(True)).count(),
         }
 
         return render_template(
@@ -1141,10 +1260,11 @@ def create_app():
 
         category_col = func.coalesce(Item.category, "Uncategorized")
         source_col = func.coalesce(Item.source_location, "Unknown")
+        confirmed_sold_expr = (Item.sold.is_(True)) & (Item.sold_confirmed.is_(True))
 
         total_items = Item.query.count()
 
-        sold_items_q = Item.query.filter(Item.sold.is_(True))
+        sold_items_q = Item.query.filter(confirmed_sold_expr)
         if sold_date_filters:
             sold_items_q = sold_items_q.filter(*sold_date_filters)
         sold_items = sold_items_q.count()
@@ -1153,7 +1273,7 @@ def create_app():
 
         total_profit_q = (
             db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
-            .filter(Item.sold.is_(True))
+            .filter(confirmed_sold_expr)
         )
         if sold_date_filters:
             total_profit_q = total_profit_q.filter(*sold_date_filters)
@@ -1163,7 +1283,7 @@ def create_app():
 
         avg_days_to_sell_q = (
             db.session.query(func.avg(days_to_sell_expr))
-            .filter(Item.sold.is_(True))
+            .filter(confirmed_sold_expr)
         )
         if sold_date_filters:
             avg_days_to_sell_q = avg_days_to_sell_q.filter(*sold_date_filters)
@@ -1171,7 +1291,7 @@ def create_app():
         avg_days_to_sell = float(avg_days_to_sell) if avg_days_to_sell is not None else 0.0
 
         # By Category (existing)
-        sold_count_all = func.sum(case((Item.sold.is_(True), 1), else_=0))
+        sold_count_all = func.sum(case((confirmed_sold_expr, 1), else_=0))
         unsold_count = func.sum(case((Item.sold.is_(False), 1), else_=0))
         total_count = func.count(Item.sku)
 
@@ -1213,7 +1333,7 @@ def create_app():
                 func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
                 func.avg(profit_expr).label("avg_profit"),
             )
-            .filter(Item.sold.is_(True))
+            .filter(confirmed_sold_expr)
         )
         if sold_date_filters:
             sold_metrics_q = sold_metrics_q.filter(*sold_date_filters)
@@ -1252,13 +1372,13 @@ def create_app():
         by_category.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
         # By Source Location (NEW)
-        sold_count_src = func.sum(case((Item.sold.is_(True), 1), else_=0))
+        sold_count_src = func.sum(case((confirmed_sold_expr, 1), else_=0))
         unsold_count_src = func.sum(case((Item.sold.is_(False), 1), else_=0))
         total_count_src = func.count(Item.sku)
 
-        sold_profit_src = func.coalesce(func.sum(case((Item.sold.is_(True), profit_expr), else_=0.0)), 0.0)
-        avg_profit_src = func.avg(case((Item.sold.is_(True), profit_expr), else_=None))
-        avg_days_to_sell_src = func.avg(case((Item.sold.is_(True), days_to_sell_expr), else_=None))
+        sold_profit_src = func.coalesce(func.sum(case((confirmed_sold_expr, profit_expr), else_=0.0)), 0.0)
+        avg_profit_src = func.avg(case((confirmed_sold_expr, profit_expr), else_=None))
+        avg_days_to_sell_src = func.avg(case((confirmed_sold_expr, days_to_sell_expr), else_=None))
 
         avg_days_listed_unsold_src = func.avg(
             case(
@@ -1303,7 +1423,7 @@ def create_app():
             func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
             func.avg(profit_expr).label("avg_profit"),
             func.avg(days_to_sell_expr).label("avg_days_to_sell"),
-        ).filter(Item.sold.is_(True))
+        ).filter(confirmed_sold_expr)
 
         if sold_date_filters:
             src_sold_q = src_sold_q.filter(*sold_date_filters)
@@ -1355,7 +1475,7 @@ def create_app():
                 days_to_sell_expr.label("days_to_sell"),
                 Item.date_sold.label("date_sold"),
             )
-            .filter(Item.sold.is_(True))
+            .filter(confirmed_sold_expr)
         )
         if sold_date_filters:
             top_q = top_q.filter(*sold_date_filters)
@@ -1569,6 +1689,17 @@ def create_app():
 
         return redirect(url_for("item_detail", sku=item.sku, return_to=return_to))
 
+    @app.route("/item/<int:sku>/confirm-sold", methods=["POST"])
+    @auth_required
+    def item_confirm_sold(sku: int):
+        item = Item.query.get_or_404(sku)
+        return_to = _safe_return_url(request.form.get("return_to"))
+        item.sold = True
+        item.sold_confirmed = True
+        db.session.commit()
+        flash(f"Confirmed SKU #{item.sku} as sold.", "success")
+        return redirect(return_to)
+
     @app.route("/item/<int:sku>/edit", methods=["GET", "POST"])
     @auth_required
     def item_edit(sku: int):
@@ -1596,6 +1727,8 @@ def create_app():
             item.date_listed = parse_date(request.form.get("date_listed"))
             item.date_sold = parse_date(request.form.get("date_sold"))
             item.sold = (request.form.get("sold") == "Y")
+            if not item.sold:
+                item.sold_confirmed = False
 
             if not item.item_name:
                 flash("Item Name is required.", "error")
