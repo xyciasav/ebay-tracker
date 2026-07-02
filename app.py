@@ -1550,6 +1550,50 @@ def create_app():
 
         by_source.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
+        pipeline_items = [
+            {"label": "Listed", "count": listed_items, "class": "listed", "href": url_for("index", status="listed")},
+            {"label": "Not listed", "count": not_listed_items, "class": "not-listed", "href": url_for("index", status="not_listed")},
+            {"label": "Sold review", "count": sold_review_items, "class": "review", "href": url_for("index", status="sold_review")},
+            {"label": "Confirmed sold", "count": sold_items, "class": "sold", "href": url_for("index", status="sold")},
+            {"label": "Canceled", "count": canceled_items, "class": "canceled", "href": url_for("index", status="canceled")},
+        ]
+        pipeline_total = sum(p["count"] for p in pipeline_items) or 1
+        for p in pipeline_items:
+            p["pct"] = (p["count"] * 100.0 / pipeline_total) if pipeline_total else 0.0
+
+        source_chart = sorted(by_source, key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True)[:8]
+        max_source_profit = max([abs(r["total_profit"]) for r in source_chart] + [1.0])
+        for r in source_chart:
+            r["profit_width"] = max(4.0, abs(r["total_profit"]) * 100.0 / max_source_profit)
+
+        category_chart = sorted(by_category, key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True)[:8]
+        max_category_profit = max([abs(r["total_profit"]) for r in category_chart] + [1.0])
+        for r in category_chart:
+            r["profit_width"] = max(4.0, abs(r["total_profit"]) * 100.0 / max_category_profit)
+
+        trend_q = (
+            db.session.query(
+                func.strftime("%Y-%m", Item.date_sold).label("period"),
+                func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
+                func.count(Item.sku).label("sold_count"),
+            )
+            .filter(confirmed_sold_expr, Item.date_sold.isnot(None))
+        )
+        if sold_date_filters:
+            trend_q = trend_q.filter(*sold_date_filters)
+        trend_rows = trend_q.group_by("period").order_by(text("period DESC")).limit(12).all()
+        profit_trend = [
+            {
+                "period": r.period,
+                "profit": float(r.profit or 0.0),
+                "sold_count": int(r.sold_count or 0),
+            }
+            for r in reversed(trend_rows)
+        ]
+        max_trend_profit = max([abs(r["profit"]) for r in profit_trend] + [1.0])
+        for r in profit_trend:
+            r["height"] = max(6.0, abs(r["profit"]) * 100.0 / max_trend_profit)
+
         # Top profit items (sold in range)
         top_q = (
             db.session.query(
@@ -1689,6 +1733,14 @@ def create_app():
             "missing_sold_review": missing_sold_review,
         }
 
+        report_viz = {
+            "pipeline_items": pipeline_items,
+            "pipeline_total": pipeline_total,
+            "source_chart": source_chart,
+            "category_chart": category_chart,
+            "profit_trend": profit_trend,
+        }
+
         return render_template(
             "reports.html",
             kpis=kpis,
@@ -1698,6 +1750,7 @@ def create_app():
             sold_review_attention=sold_review_attention,
             aged_unsold=aged_unsold,
             negative_profit=negative_profit,
+            report_viz=report_viz,
             range_key=range_key,
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",

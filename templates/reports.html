@@ -3,303 +3,358 @@
 
 {% block content %}
 <style>
-  .report-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:12px; margin-bottom:14px; }
-  .metric-card label{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  .metric-card strong{ display:block; font-size:28px; margin-top:4px; }
-  .metric-card .small{ margin-top:4px; }
-  .attention-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; align-items:start; margin-bottom:14px; }
-  .attention-card{ max-height:420px; display:flex; flex-direction:column; min-height:0; }
-  .attention-card h3{ margin:0 0 10px 0; flex:0 0 auto; }
-  .report-list{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; min-height:0; }
-  .report-list-item{ border:1px solid var(--border2); border-radius:12px; padding:9px; background:var(--soft); }
-  .report-list-item a{ color:var(--text); text-decoration:none; font-weight:700; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.25; }
-  .report-list-item a:hover{ text-decoration:underline; }
-  .report-list-item .small{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .reports-shell{ display:flex; flex-direction:column; gap:16px; }
+  .report-filter{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  .report-filter > div{ min-width:150px; }
+  .report-hero{
+    display:grid;
+    grid-template-columns: minmax(260px, 1.25fr) repeat(3, minmax(160px, .75fr));
+    gap:12px;
+    align-items:stretch;
+  }
+  .hero-profit{
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 38%),
+      var(--card);
+  }
+  .hero-profit .value{ font-size:clamp(34px, 6vw, 54px); line-height:1; letter-spacing:-.05em; font-weight:800; margin-top:8px; }
+  .mini-kpi label,
+  .hero-profit label,
+  .panel-heading .eyebrow{
+    color:var(--muted);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+  }
+  .mini-kpi strong{ display:block; font-size:30px; margin-top:6px; letter-spacing:-.03em; }
+  .mini-kpi .small,
+  .hero-profit .small{ margin-top:6px; }
+  .visual-grid{ display:grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); gap:14px; align-items:start; }
+  .panel-heading{ display:flex; justify-content:space-between; gap:12px; align-items:start; margin-bottom:12px; }
+  .panel-heading h3{ margin:2px 0 0 0; }
+  .pipeline-stack{ display:flex; height:28px; overflow:hidden; border-radius:999px; background:var(--soft); border:1px solid var(--border2); }
+  .pipeline-seg{ min-width:3px; }
+  .pipeline-seg.listed{ background:var(--accent); }
+  .pipeline-seg.not-listed{ background:var(--warning); }
+  .pipeline-seg.review{ background:color-mix(in srgb, var(--warning) 65%, var(--danger)); }
+  .pipeline-seg.sold{ background:var(--success); }
+  .pipeline-seg.canceled{ background:var(--danger); }
+  .pipeline-legend{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:14px; }
+  .legend-card{ border:1px solid var(--border2); border-radius:12px; padding:10px; background:var(--soft); text-decoration:none; color:var(--text); }
+  .legend-card strong{ display:block; font-size:24px; }
+  .legend-dot{ width:9px; height:9px; display:inline-block; border-radius:999px; margin-right:6px; }
+  .trend-chart{ display:flex; align-items:end; gap:8px; height:180px; padding:10px 6px 0; border-bottom:1px solid var(--border2); }
+  .trend-col{ flex:1; min-width:22px; display:flex; flex-direction:column; align-items:center; justify-content:end; gap:6px; height:100%; }
+  .trend-bar{ width:100%; max-width:34px; min-height:6px; border-radius:10px 10px 0 0; background:var(--success); }
+  .trend-bar.negative{ background:var(--danger); }
+  .trend-label{ font-size:11px; color:var(--muted); writing-mode:vertical-rl; transform:rotate(180deg); max-height:58px; white-space:nowrap; }
+  .bar-list{ display:flex; flex-direction:column; gap:10px; }
+  .bar-row{ display:grid; grid-template-columns:minmax(100px, 160px) 1fr minmax(76px, auto); gap:10px; align-items:center; }
+  .bar-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar-track{ height:12px; border-radius:999px; background:var(--soft); border:1px solid var(--border2); overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:999px; background:var(--accent); }
+  .bar-fill.negative{ background:var(--danger); }
+  .bar-value{ text-align:right; font-weight:700; }
+  .action-layout{ display:grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr); gap:14px; align-items:start; }
+  .action-card{ max-height:360px; display:flex; flex-direction:column; min-height:0; }
+  .action-list{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; }
+  .action-item{ border:1px solid var(--border2); border-radius:12px; padding:9px; background:var(--soft); }
+  .action-item a{ color:var(--text); text-decoration:none; font-weight:700; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .action-item .small{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .missing-tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
   .missing-tags span{ border:1px solid var(--border); border-radius:999px; padding:3px 7px; font-size:12px; color:var(--warning); background:var(--pillBg); }
-  .thumb{
-    width:46px;
-    height:46px;
-    border-radius:10px;
-    object-fit:cover;
-    border:1px solid var(--border2);
-    background:var(--soft);
-    display:block;
-  }
+  .table-panel{ overflow:auto; }
+  .thumb{ width:42px; height:42px; border-radius:10px; object-fit:cover; border:1px solid var(--border2); background:var(--soft); display:block; }
   .money-negative{ color:var(--danger); font-weight:700; }
   .money-positive{ color:var(--success); font-weight:700; }
+  @media (max-width: 900px){
+    .report-hero,
+    .visual-grid,
+    .action-layout{ grid-template-columns:1fr; }
+  }
 </style>
 
-<div class="page-hero">
-  <div>
-    <h1>Reports</h1>
-    <div class="small">Profit, listing pipeline, cleanup queues, and what has been sitting too long.</div>
-  </div>
-  <div class="toolbar">
-    <a class="btn secondary" href="{{ url_for('index', status='sold_review') }}">Sold Review</a>
-    <a class="btn secondary" href="{{ url_for('index', status='not_listed') }}">Not Listed</a>
-    <a class="btn secondary" href="{{ url_for('index', status='canceled') }}">Canceled</a>
-  </div>
-</div>
-
-<div class="card" style="margin-bottom:14px;">
-  <form method="get" style="display:flex; flex-wrap:wrap; gap:10px; align-items:end;">
-    <div style="min-width:220px;">
-      <label>Date Range</label>
-      <select name="range">
-        <option value="all" {% if range_key=='all' %}selected{% endif %}>All time</option>
-        <option value="30d" {% if range_key=='30d' %}selected{% endif %}>Last 30 days</option>
-        <option value="90d" {% if range_key=='90d' %}selected{% endif %}>Last 90 days</option>
-        <option value="this_month" {% if range_key=='this_month' %}selected{% endif %}>This month</option>
-        <option value="last_month" {% if range_key=='last_month' %}selected{% endif %}>Last month</option>
-        <option value="this_year" {% if range_key=='this_year' %}selected{% endif %}>This year</option>
-        <option value="last_year" {% if range_key=='last_year' %}selected{% endif %}>Last year</option>
-        <option value="custom" {% if range_key=='custom' %}selected{% endif %}>Custom</option>
-      </select>
-    </div>
-
-    <div style="min-width:170px;">
-      <label>Start</label>
-      <input type="date" name="start" value="{{ start }}">
-    </div>
-
-    <div style="min-width:170px;">
-      <label>End</label>
-      <input type="date" name="end" value="{{ end }}">
-    </div>
-
-    <div style="min-width:150px;">
-      <label>Top items</label>
-      <select name="top">
-        <option value="5" {% if top_n == 5 %}selected{% endif %}>Top 5</option>
-        <option value="10" {% if top_n == 10 %}selected{% endif %}>Top 10</option>
-        <option value="15" {% if top_n == 15 %}selected{% endif %}>Top 15</option>
-        <option value="25" {% if top_n == 25 %}selected{% endif %}>Top 25</option>
-      </select>
-    </div>
-
+<div class="reports-shell">
+  <div class="page-hero">
     <div>
-      <button class="btn" type="submit">Apply</button>
-      <a class="btn secondary" href="{{ url_for('reports') }}">Reset</a>
+      <h1>Reports</h1>
+      <div class="small">A cleaner pulse check: profit, inventory pipeline, what needs action, and what is worth repeating.</div>
     </div>
-  </form>
-</div>
-
-<div class="report-grid">
-  <div class="card metric-card">
-    <label>Confirmed Sold</label>
-    <strong>{{ kpis.sold_items }}</strong>
-    <div class="small">{{ "%.1f"|format(kpis.sold_rate_pct) }}% sell-through overall</div>
-  </div>
-  <div class="card metric-card">
-    <label>Total Profit</label>
-    <strong>${{ "%.2f"|format(kpis.total_profit) }}</strong>
-    <div class="small">For confirmed sold items in range</div>
-  </div>
-  <div class="card metric-card">
-    <label>Avg Profit / Sold</label>
-    <strong>${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</strong>
-    <div class="small">After COG, shipping, ad, and eBay fees</div>
-  </div>
-  <div class="card metric-card">
-    <label>Avg Days to Sell</label>
-    <strong>{{ "%.1f"|format(kpis.avg_days_to_sell) }}</strong>
-    <div class="small">Confirmed sold items</div>
-  </div>
-</div>
-
-<div class="report-grid">
-  <div class="card metric-card">
-    <label>Listed</label>
-    <strong>{{ kpis.listed_items }}</strong>
-    <div class="small">Active unsold items with eBay item #</div>
-  </div>
-  <div class="card metric-card">
-    <label>Not Listed</label>
-    <strong>{{ kpis.not_listed_items }}</strong>
-    <div class="small">Inventory still waiting to go up</div>
-  </div>
-  <div class="card metric-card">
-    <label>Sold Review</label>
-    <strong>{{ kpis.sold_review_items }}</strong>
-    <div class="small">
-      Missing:
-      {{ kpis.missing_sold_review.cog }} COG,
-      {{ kpis.missing_sold_review.shipping }} ship,
-      {{ kpis.missing_sold_review.ebay_fee }} fee
+    <div class="toolbar">
+      <a class="btn secondary" href="{{ url_for('index', status='sold_review') }}">Sold Review</a>
+      <a class="btn secondary" href="{{ url_for('index', status='not_listed') }}">Not Listed</a>
+      <a class="btn secondary" href="{{ url_for('index', status='canceled') }}">Canceled</a>
     </div>
   </div>
-  <div class="card metric-card">
-    <label>Canceled</label>
-    <strong>{{ kpis.canceled_items }}</strong>
-    <div class="small">Tracked separately from sold</div>
-  </div>
-  <div class="card metric-card">
-    <label>Unsold COG</label>
-    <strong>${{ "%.2f"|format(kpis.unsold_inventory_cost) }}</strong>
-    <div class="small">Cash tied up in active inventory</div>
-  </div>
-  <div class="card metric-card">
-    <label>Listed Value</label>
-    <strong>${{ "%.2f"|format(kpis.unsold_listed_value) }}</strong>
-    <div class="small">Asking price of listed unsold items</div>
-  </div>
-</div>
 
-<div class="attention-grid">
-  <section class="card attention-card">
-    <h3>Sold Review Queue</h3>
-    <div class="report-list">
-      {% for r in sold_review_attention %}
-        <div class="report-list-item">
-          <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-          <div class="small">Sold {{ r.date_sold or "date unknown" }} · current profit ${{ "%.2f"|format(r.profit) }}</div>
-          {% if r.missing %}
-            <div class="missing-tags">
-              {% for m in r.missing %}<span>{{ m }}</span>{% endfor %}
+  <div class="card">
+    <form method="get" class="report-filter">
+      <div style="min-width:220px;">
+        <label>Date Range</label>
+        <select name="range">
+          <option value="all" {% if range_key=='all' %}selected{% endif %}>All time</option>
+          <option value="30d" {% if range_key=='30d' %}selected{% endif %}>Last 30 days</option>
+          <option value="90d" {% if range_key=='90d' %}selected{% endif %}>Last 90 days</option>
+          <option value="this_month" {% if range_key=='this_month' %}selected{% endif %}>This month</option>
+          <option value="last_month" {% if range_key=='last_month' %}selected{% endif %}>Last month</option>
+          <option value="this_year" {% if range_key=='this_year' %}selected{% endif %}>This year</option>
+          <option value="last_year" {% if range_key=='last_year' %}selected{% endif %}>Last year</option>
+          <option value="custom" {% if range_key=='custom' %}selected{% endif %}>Custom</option>
+        </select>
+      </div>
+      <div>
+        <label>Start</label>
+        <input type="date" name="start" value="{{ start }}">
+      </div>
+      <div>
+        <label>End</label>
+        <input type="date" name="end" value="{{ end }}">
+      </div>
+      <div>
+        <label>Top items</label>
+        <select name="top">
+          <option value="5" {% if top_n == 5 %}selected{% endif %}>Top 5</option>
+          <option value="10" {% if top_n == 10 %}selected{% endif %}>Top 10</option>
+          <option value="15" {% if top_n == 15 %}selected{% endif %}>Top 15</option>
+          <option value="25" {% if top_n == 25 %}selected{% endif %}>Top 25</option>
+        </select>
+      </div>
+      <div>
+        <button class="btn" type="submit">Apply</button>
+        <a class="btn secondary" href="{{ url_for('reports') }}">Reset</a>
+      </div>
+    </form>
+  </div>
+
+  <section class="report-hero">
+    <div class="card hero-profit">
+      <label>Total Profit</label>
+      <div class="value {% if kpis.total_profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(kpis.total_profit) }}</div>
+      <div class="small">Confirmed sold items in the selected range.</div>
+    </div>
+    <div class="card mini-kpi">
+      <label>Confirmed sold</label>
+      <strong>{{ kpis.sold_items }}</strong>
+      <div class="small">{{ "%.1f"|format(kpis.sold_rate_pct) }}% overall sell-through</div>
+    </div>
+    <div class="card mini-kpi">
+      <label>Avg profit</label>
+      <strong>${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</strong>
+      <div class="small">Per confirmed sold item</div>
+    </div>
+    <div class="card mini-kpi">
+      <label>Avg days</label>
+      <strong>{{ "%.1f"|format(kpis.avg_days_to_sell) }}</strong>
+      <div class="small">Listed to sold</div>
+    </div>
+  </section>
+
+  <section class="visual-grid">
+    <div class="card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Inventory flow</div>
+          <h3>Pipeline</h3>
+        </div>
+        <div class="small">{{ report_viz.pipeline_total }} tracked states</div>
+      </div>
+      <div class="pipeline-stack" aria-label="Inventory pipeline">
+        {% for p in report_viz.pipeline_items %}
+          <div class="pipeline-seg {{ p.class }}" style="width: {{ p.pct }}%;" title="{{ p.label }}: {{ p.count }}"></div>
+        {% endfor %}
+      </div>
+      <div class="pipeline-legend">
+        {% for p in report_viz.pipeline_items %}
+          <a class="legend-card" href="{{ p.href }}">
+            <div class="small"><span class="legend-dot pipeline-seg {{ p.class }}"></span>{{ p.label }}</div>
+            <strong>{{ p.count }}</strong>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Profit trend</div>
+          <h3>Monthly profit</h3>
+        </div>
+        <div class="small">Last 12 sold months in range</div>
+      </div>
+      {% if report_viz.profit_trend %}
+        <div class="trend-chart">
+          {% for r in report_viz.profit_trend %}
+            <div class="trend-col" title="{{ r.period }} · ${{ '%.2f'|format(r.profit) }} · {{ r.sold_count }} sold">
+              <div class="trend-bar {% if r.profit < 0 %}negative{% endif %}" style="height: {{ r.height }}%;"></div>
+              <div class="trend-label">{{ r.period }}</div>
             </div>
-          {% endif %}
+          {% endfor %}
         </div>
       {% else %}
-        <div class="small">Nothing waiting for sold review. Beautifully boring.</div>
-      {% endfor %}
+        <div class="small">No confirmed sold dates yet, so there is no trend to draw.</div>
+      {% endif %}
     </div>
   </section>
 
-  <section class="card attention-card">
-    <h3>Oldest Listed / Unsold</h3>
-    <div class="report-list">
-      {% for r in aged_unsold %}
-        <div class="report-list-item">
-          <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-          <div class="small">
-            {{ r.days_listed }} days listed · ${{ "%.2f"|format(r.sale_price) }}
-            · {% if r.listed %}Listed{% else %}Not listed{% endif %}
+  <section class="visual-grid">
+    <div class="card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Where money comes from</div>
+          <h3>Top sources by profit</h3>
+        </div>
+      </div>
+      <div class="bar-list">
+        {% for r in report_viz.source_chart %}
+          <div class="bar-row">
+            <div class="bar-label" title="{{ r.source }}">{{ r.source }}</div>
+            <div class="bar-track"><div class="bar-fill {% if r.total_profit < 0 %}negative{% endif %}" style="width: {{ r.profit_width }}%;"></div></div>
+            <div class="bar-value">${{ "%.0f"|format(r.total_profit) }}</div>
           </div>
+        {% else %}
+          <div class="small">No source profit yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">What sells best</div>
+          <h3>Top categories by profit</h3>
         </div>
-      {% else %}
-        <div class="small">No dated unsold listings yet.</div>
-      {% endfor %}
+      </div>
+      <div class="bar-list">
+        {% for r in report_viz.category_chart %}
+          <div class="bar-row">
+            <div class="bar-label" title="{{ r.category }}">{{ r.category }}</div>
+            <div class="bar-track"><div class="bar-fill {% if r.total_profit < 0 %}negative{% endif %}" style="width: {{ r.profit_width }}%;"></div></div>
+            <div class="bar-value">${{ "%.0f"|format(r.total_profit) }}</div>
+          </div>
+        {% else %}
+          <div class="small">No category profit yet.</div>
+        {% endfor %}
+      </div>
     </div>
   </section>
 
-  <section class="card attention-card">
-    <h3>Losses to Review</h3>
-    <div class="report-list">
-      {% for r in negative_profit %}
-        <div class="report-list-item">
-          <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-          <div class="small">Sold {{ r.date_sold or "date unknown" }} · <span class="money-negative">${{ "%.2f"|format(r.profit) }}</span></div>
+  <section class="action-layout">
+    <div class="card action-card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Needs your eyes</div>
+          <h3>Sold review</h3>
         </div>
-      {% else %}
-        <div class="small">No negative-profit confirmed sales in this range.</div>
-      {% endfor %}
-    </div>
-  </section>
-</div>
-
-<div class="card" style="margin-bottom:14px;">
-  <h3 style="margin:0 0 10px 0;">By Source Location</h3>
-  <div style="overflow:auto;">
-    <table class="table" style="margin-bottom:0;">
-      <thead>
-        <tr>
-          <th>Source</th>
-          <th>Sold</th>
-          <th>Unsold</th>
-          <th>Sell-through</th>
-          <th>Total Profit</th>
-          <th>Avg Profit</th>
-          <th>Avg Days To Sell</th>
-          <th>Avg Days Listed</th>
-          <th>Avg COG Unsold</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in by_source %}
-          <tr>
-            <td>{{ r.source }}</td>
-            <td>{{ r.sold_count }}</td>
-            <td>{{ r.unsold_count }}</td>
-            <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
-            <td>${{ "%.2f"|format(r.total_profit) }}</td>
-            <td>${{ "%.2f"|format(r.avg_profit) }}</td>
-            <td>{% if r.avg_days_to_sell is not none %}{{ "%.1f"|format(r.avg_days_to_sell) }}{% else %}—{% endif %}</td>
-            <td>{% if r.avg_days_listed_unsold is not none %}{{ "%.1f"|format(r.avg_days_listed_unsold) }}{% else %}—{% endif %}</td>
-            <td>{% if r.avg_cog_unsold is not none %}${{ "%.2f"|format(r.avg_cog_unsold) }}{% else %}—{% endif %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card" style="margin-bottom:14px;">
-  <h3 style="margin:0 0 10px 0;">By Category</h3>
-  <div style="overflow:auto;">
-    <table class="table" style="margin-bottom:0;">
-      <thead>
-        <tr>
-          <th>Category</th>
-          <th>Sold</th>
-          <th>Unsold</th>
-          <th>Sell-through</th>
-          <th>Total Profit</th>
-          <th>Avg Profit</th>
-          <th>Avg Days Listed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in by_category %}
-          <tr>
-            <td>{{ r.category }}</td>
-            <td>{{ r.sold_count }}</td>
-            <td>{{ r.unsold_count }}</td>
-            <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
-            <td>${{ "%.2f"|format(r.total_profit) }}</td>
-            <td>${{ "%.2f"|format(r.avg_profit) }}</td>
-            <td>{% if r.avg_days_listed_unsold is not none %}{{ "%.1f"|format(r.avg_days_listed_unsold) }}{% else %}—{% endif %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card" style="margin-top:14px;">
-  <h3 style="margin:0 0 10px 0;">Top Profit Items</h3>
-  <table class="table">
-    <thead>
-      <tr>
-        <th style="width:64px;">Photo</th>
-        <th>SKU</th>
-        <th>Item</th>
-        <th>Category</th>
-        <th style="text-align:right;">Profit</th>
-        <th style="text-align:right;">Days to Sell</th>
-        <th>Date Sold</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in top_profit %}
-        <tr>
-          <td>
-            {% if r.thumb_url %}
-              <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
-            {% else %}
-              <div class="thumb" style="display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.6;">—</div>
+        <div class="small">{{ kpis.sold_review_items }} items</div>
+      </div>
+      <div class="action-list">
+        {% for r in sold_review_attention %}
+          <div class="action-item">
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
+            <div class="small">Sold {{ r.date_sold or "date unknown" }} · current profit ${{ "%.2f"|format(r.profit) }}</div>
+            {% if r.missing %}
+              <div class="missing-tags">{% for m in r.missing %}<span>{{ m }}</span>{% endfor %}</div>
             {% endif %}
-          </td>
-          <td><a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">{{ r.sku }}</a></td>
-          <td>{{ r.item_name }}</td>
-          <td>{{ r.category }}</td>
-          <td style="text-align:right;" class="{% if r.profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</td>
-          <td style="text-align:right;">{% if r.days_to_sell is none %}—{% else %}{{ "%.1f"|format(r.days_to_sell) }}{% endif %}</td>
-          <td>{{ r.date_sold or "—" }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </div>
+        {% else %}
+          <div class="small">Nothing waiting for sold review. Beautifully boring.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card action-card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Potential fixes</div>
+          <h3>Old inventory + losses</h3>
+        </div>
+      </div>
+      <div class="action-list">
+        {% for r in aged_unsold[:6] %}
+          <div class="action-item">
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
+            <div class="small">{{ r.days_listed }} days listed · ${{ "%.2f"|format(r.sale_price) }} · {% if r.listed %}Listed{% else %}Not listed{% endif %}</div>
+          </div>
+        {% endfor %}
+        {% for r in negative_profit[:6] %}
+          <div class="action-item">
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
+            <div class="small">Loss review · sold {{ r.date_sold or "date unknown" }} · <span class="money-negative">${{ "%.2f"|format(r.profit) }}</span></div>
+          </div>
+        {% else %}
+          {% if not aged_unsold %}
+            <div class="small">No old listed inventory or negative-profit sales in this view.</div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="visual-grid">
+    <div class="card table-panel">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Details</div>
+          <h3>Source performance</h3>
+        </div>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Sold</th>
+            <th>Unsold</th>
+            <th>Sell-through</th>
+            <th>Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in by_source[:10] %}
+            <tr>
+              <td>{{ r.source }}</td>
+              <td>{{ r.sold_count }}</td>
+              <td>{{ r.unsold_count }}</td>
+              <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
+              <td>${{ "%.2f"|format(r.total_profit) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card table-panel">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Details</div>
+          <h3>Top profit items</h3>
+        </div>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:54px;">Photo</th>
+            <th>Item</th>
+            <th style="text-align:right;">Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in top_profit %}
+            <tr>
+              <td>
+                {% if r.thumb_url %}
+                  <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
+                {% else %}
+                  <div class="thumb" style="display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.6;">—</div>
+                {% endif %}
+              </td>
+              <td><a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }}</a><div class="small">{{ r.item_name }}</div></td>
+              <td style="text-align:right;" class="{% if r.profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
 {% endblock %}
