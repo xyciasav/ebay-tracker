@@ -16,25 +16,25 @@
 </div>
 
 <div class="status-tabs">
-  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>All</span><b>{{ status_counts.all }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Not Listed</span><b>{{ status_counts.not_listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Listed</span><b>{{ status_counts.listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Sold Review</span><b>{{ status_counts.sold_review }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Pending Shipping</span><b>{{ status_counts.pending_shipping }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Canceled</span><b>{{ status_counts.canceled }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter) }}">
+  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
     <span>Sold</span><b>{{ status_counts.sold }}</b>
   </a>
 </div>
@@ -65,6 +65,14 @@
         {% endfor %}
       </select>
     </div>
+    <div>
+      <label>Sort</label>
+      <select name="sort">
+        {% for value, label in sort_options.items() %}
+          <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <div class="filter-actions">
       <button class="btn" type="submit">Filter</button>
       <a class="btn secondary" href="{{ url_for('index') }}">Reset</a>
@@ -75,8 +83,8 @@
 <div class="view-bar">
   <div class="small">{{ items|length }} item{{ '' if items|length == 1 else 's' }} shown</div>
   <div class="segmented">
-    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter) }}">Cards</a>
-    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter) }}">Table</a>
+    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, sort=sort) }}">Cards</a>
+    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter, sort=sort) }}">Table</a>
   </div>
 </div>
 
@@ -159,7 +167,7 @@
       <article class="item-card">
         <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku, return_to=current_url) }}">
           {% if image %}
-            <img src="{{ url_for('uploaded_file', filename=image.filename) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">
+            <img src="{{ url_for('uploaded_file', filename=image.filename) }}" alt="{{ item.item_name }}" width="400" height="300" loading="lazy" decoding="async">
           {% else %}
             <span>No photo</span>
           {% endif %}

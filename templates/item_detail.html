@@ -38,7 +38,7 @@
     <div class="item-hero-photo">
       {% if hero_image %}
         <a href="{{ url_for('uploaded_file', filename=hero_image.filename) }}" target="_blank" rel="noopener">
-          <img src="{{ url_for('uploaded_file', filename=hero_image.filename) }}" alt="{{ item.item_name }}" loading="eager" decoding="async">
+          <img src="{{ url_for('uploaded_file', filename=hero_image.filename) }}" alt="{{ item.item_name }}" width="800" height="600" loading="eager" decoding="async">
         </a>
       {% else %}
         <span>No photo yet</span>
@@ -171,7 +171,7 @@
       {% for img in item.images %}
         <div>
           <a href="{{ url_for('uploaded_file', filename=img.filename) }}" target="_blank" rel="noopener">
-            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="Item photo" loading="lazy" decoding="async">
+            <img class="thumb" src="{{ url_for('uploaded_file', filename=img.filename) }}" alt="Item photo" width="180" height="180" loading="lazy" decoding="async">
           </a>
 
           <form method="post" action="{{ url_for('delete_image', image_id=img.id) }}"

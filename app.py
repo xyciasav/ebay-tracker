@@ -1675,6 +1675,7 @@ def create_app():
         view_mode = request.args.get("view", "cards").strip().lower()
         platform = request.args.get("platform", "").strip()
         category = request.args.get("category", "").strip()
+        sort = request.args.get("sort", "newest").strip().lower()
         q = request.args.get("q", "").strip()
 
         query = Item.query
@@ -1722,7 +1723,56 @@ def create_app():
                 (Item.ebay_condition.ilike(like))
             )
 
-        items = query.order_by(Item.sku.desc()).all()
+        sort_options = {
+            "newest": "Newest added",
+            "oldest": "Oldest added",
+            "az": "A-Z title",
+            "za": "Z-A title",
+            "date_listed_desc": "Date listed newest",
+            "date_listed_asc": "Date listed oldest",
+            "date_sold_desc": "Date sold newest",
+            "date_sold_asc": "Date sold oldest",
+            "price_desc": "Price high to low",
+            "price_asc": "Price low to high",
+            "profit_desc": "Profit high to low",
+            "profit_asc": "Profit low to high",
+        }
+        if sort not in sort_options:
+            sort = "newest"
+
+        profit_sort_expr = (
+            func.coalesce(Item.buyer_paid_amount, Item.sale_price, 0) -
+            func.coalesce(Item.cog, 0) -
+            func.coalesce(Item.shipping, 0) -
+            func.coalesce(Item.ad_fee, 0) -
+            func.coalesce(Item.ebay_fee, 0)
+        )
+        if sort == "oldest":
+            query = query.order_by(Item.sku.asc())
+        elif sort == "az":
+            query = query.order_by(func.lower(Item.item_name).asc(), Item.sku.desc())
+        elif sort == "za":
+            query = query.order_by(func.lower(Item.item_name).desc(), Item.sku.desc())
+        elif sort == "date_listed_desc":
+            query = query.order_by(Item.date_listed.desc().nullslast(), Item.sku.desc())
+        elif sort == "date_listed_asc":
+            query = query.order_by(Item.date_listed.asc().nullslast(), Item.sku.desc())
+        elif sort == "date_sold_desc":
+            query = query.order_by(Item.date_sold.desc().nullslast(), Item.sku.desc())
+        elif sort == "date_sold_asc":
+            query = query.order_by(Item.date_sold.asc().nullslast(), Item.sku.desc())
+        elif sort == "price_desc":
+            query = query.order_by(Item.sale_price.desc().nullslast(), Item.sku.desc())
+        elif sort == "price_asc":
+            query = query.order_by(Item.sale_price.asc().nullslast(), Item.sku.desc())
+        elif sort == "profit_desc":
+            query = query.order_by(profit_sort_expr.desc(), Item.sku.desc())
+        elif sort == "profit_asc":
+            query = query.order_by(profit_sort_expr.asc(), Item.sku.desc())
+        else:
+            query = query.order_by(Item.sku.desc())
+
+        items = query.all()
 
         platforms = get_distinct_values(Item, Item.platform)
         categories = get_distinct_values(Item, Item.category)
@@ -1748,6 +1798,8 @@ def create_app():
             view_mode=view_mode,
             platform_filter=platform,
             category_filter=category,
+            sort=sort,
+            sort_options=sort_options,
             q=q,
             current_url=request.full_path.rstrip("?"),
         )

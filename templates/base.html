@@ -222,7 +222,7 @@
     .filter-card{ margin-bottom:14px; }
     .filter-grid{
       display:grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px) minmax(150px, 220px) auto;
+      grid-template-columns: minmax(220px, 1fr) minmax(140px, 190px) minmax(140px, 190px) minmax(160px, 220px) auto;
       gap:10px;
       align-items:end;
     }
@@ -302,7 +302,7 @@
       height:100%;
       max-width:100%;
       max-height:100%;
-      object-fit:cover;
+      object-fit:contain;
       display:block;
     }
     .item-card-body{
@@ -391,7 +391,9 @@
     }
     .item-hero-photo{
       aspect-ratio: 4 / 3;
-      min-height:320px;
+      min-height:0;
+      height:auto;
+      max-height:420px;
       border:1px solid var(--border2);
       background:var(--soft);
       border-radius:14px;
@@ -401,11 +403,18 @@
       overflow:hidden;
       color:var(--muted);
     }
+    .item-hero-photo a{
+      display:block;
+      width:100%;
+      height:100%;
+      min-width:0;
+      overflow:hidden;
+    }
     .item-hero-photo img{
       width:100%;
       height:100%;
       max-height:420px;
-      object-fit:cover;
+      object-fit:contain;
       display:block;
     }
     .item-hero-info h1{
@@ -450,7 +459,7 @@
       width: 180px;
       height: 180px;
       aspect-ratio: 1 / 1;
-      object-fit: cover;
+      object-fit: contain;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: var(--thumbBg);
@@ -465,7 +474,7 @@
       .inventory-grid{ grid-template-columns: 1fr; }
       .item-photo{ height:220px; flex-basis:220px; }
       .item-hero{ grid-template-columns: 1fr; }
-      .item-hero-photo{ min-height:240px; }
+      .item-hero-photo{ max-height:320px; }
     }
     @media (max-width: 880px){
       .filter-grid{ grid-template-columns: 1fr 1fr; }
