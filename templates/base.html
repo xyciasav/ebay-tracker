@@ -334,12 +334,10 @@
     }
     .meta-row{
       display:flex;
-      flex-wrap:nowrap;
+      flex-wrap:wrap;
       gap:6px;
       max-width:100%;
-      overflow-x:auto;
-      overflow-y:hidden;
-      scrollbar-width:thin;
+      overflow:hidden;
     }
     .meta-row span{
       border:1px solid var(--border);
@@ -348,23 +346,21 @@
       font-size:12px;
       color:var(--muted);
       background:var(--pillBg);
-      flex:0 0 auto;
-      max-width:220px;
+      flex:1 1 auto;
+      min-width:0;
+      max-width:100%;
       overflow:hidden;
       text-overflow:ellipsis;
       white-space:nowrap;
     }
     .checklist{
-      display:flex;
-      flex-wrap:nowrap;
+      display:grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap:6px;
       max-width:100%;
-      overflow-x:auto;
-      overflow-y:hidden;
-      scrollbar-width:thin;
+      overflow:hidden;
     }
     .checklist span{
-      flex:1 0 64px;
       border:1px dashed var(--border);
       border-radius:8px;
       padding:6px 4px;

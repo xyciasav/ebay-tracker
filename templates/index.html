@@ -16,28 +16,25 @@
 </div>
 
 <div class="status-tabs">
-  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>All</span><b>{{ status_counts.all }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Not Listed</span><b>{{ status_counts.not_listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'needs_info' %}active{% endif %}" href="{{ url_for('index', status='needs_info', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
-    <span>Needs Info</span><b>{{ status_counts.needs_info }}</b>
-  </a>
-  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Listed</span><b>{{ status_counts.listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Sold Review</span><b>{{ status_counts.sold_review }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Pending Shipping</span><b>{{ status_counts.pending_shipping }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Canceled</span><b>{{ status_counts.canceled }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort) }}">
+  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Sold</span><b>{{ status_counts.sold }}</b>
   </a>
 </div>
@@ -75,6 +72,14 @@
           <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
+    </div>
+    <div>
+      <label>Listing Info</label>
+      <label style="display:flex; gap:8px; align-items:center; min-height:42px; margin:0;">
+        <input type="checkbox" name="needs_info" value="1" {% if needs_info %}checked{% endif %} style="width:auto;">
+        Missing Photo, Cost, Price, or eBay
+      </label>
+      <div class="small">{{ status_counts.needs_info }} need info</div>
     </div>
     <div class="filter-actions">
       <button class="btn" type="submit">Filter</button>
@@ -116,11 +121,11 @@
 <div class="view-bar">
   <div class="small">
     {{ items|length }} item{{ '' if items|length == 1 else 's' }} shown
-    {% if status_filter == 'needs_info' %} · missing Photo, Cost, Price, or eBay{% endif %}
+    {% if needs_info %} · missing Photo, Cost, Price, or eBay{% endif %}
   </div>
   <div class="segmented">
-    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, sort=sort) }}">Cards</a>
-    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter, sort=sort) }}">Table</a>
+    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">Cards</a>
+    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">Table</a>
   </div>
 </div>
 
