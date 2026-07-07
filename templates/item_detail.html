@@ -8,6 +8,12 @@
 
   <div class="item-page-actions">
     <a class="btn secondary" href="{{ return_to }}">← Back</a>
+    {% if previous_item %}
+      <a class="btn secondary" href="{{ url_for('item_detail', sku=previous_item.sku, return_to=return_to) }}">Previous</a>
+    {% endif %}
+    {% if next_item %}
+      <a class="btn secondary" href="{{ url_for('item_detail', sku=next_item.sku, return_to=return_to) }}">Next</a>
+    {% endif %}
     {% if ebay_url %}
       <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
     {% endif %}

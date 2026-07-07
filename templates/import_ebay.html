@@ -65,6 +65,11 @@
         <button type="button" class="btn secondary" data-bulk-action="update">Update matched</button>
         <button type="button" class="btn secondary" data-bulk-action="create">Create all new</button>
         <button type="button" class="btn secondary" data-bulk-action="skip">Skip all</button>
+        <label class="btn secondary" style="gap:8px; cursor:pointer;">
+          <input type="checkbox" id="hideSkippedRows" checked style="width:auto;">
+          Hide skipped
+        </label>
+        <span class="small" id="hiddenSkippedCount" style="align-self:center;"></span>
       </div>
 
       <table>
@@ -84,7 +89,7 @@
         <tbody>
         {% for r in rows %}
           {% set row_kind = r.report_kind or report_kind %}
-          <tr>
+          <tr data-import-row>
             <td>
               <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}" data-has-changes="{{ '1' if r.expected_changes else '0' }}">
                 {% if r.flagged %}
@@ -160,6 +165,21 @@
 </div>
 <script>
   document.addEventListener("DOMContentLoaded", () => {
+    const hideSkipped = document.getElementById("hideSkippedRows");
+    const hiddenCount = document.getElementById("hiddenSkippedCount");
+    const updateSkippedVisibility = () => {
+      let hidden = 0;
+      document.querySelectorAll("[data-import-row]").forEach((row) => {
+        const select = row.querySelector(".import-decision");
+        const shouldHide = hideSkipped && hideSkipped.checked && select && select.value === "skip";
+        row.style.display = shouldHide ? "none" : "";
+        if (shouldHide) hidden += 1;
+      });
+      if (hiddenCount) {
+        hiddenCount.textContent = hidden ? `${hidden} skipped hidden` : "";
+      }
+    };
+
     document.querySelectorAll("[data-bulk-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const action = btn.getAttribute("data-bulk-action");
@@ -172,8 +192,16 @@
             select.value = action;
           }
         });
+        updateSkippedVisibility();
       });
     });
+    document.querySelectorAll(".import-decision").forEach((select) => {
+      select.addEventListener("change", updateSkippedVisibility);
+    });
+    if (hideSkipped) {
+      hideSkipped.addEventListener("change", updateSkippedVisibility);
+    }
+    updateSkippedVisibility();
   });
 </script>
 {% endblock %}

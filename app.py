@@ -3,7 +3,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
-from sqlalchemy import func, case, text
+from sqlalchemy import func, case, text, or_
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, Response, abort, session
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
@@ -448,6 +448,33 @@ def _preview_fill_if_missing(item: Item, field: str, label: str, value):
     return None
 
 
+def _values_differ(current, incoming):
+    if incoming in (None, ""):
+        return False
+    if current in (None, ""):
+        return False
+    if isinstance(current, float) or isinstance(incoming, float):
+        try:
+            return round(float(current), 2) != round(float(incoming), 2)
+        except (TypeError, ValueError):
+            return str(current) != str(incoming)
+    return current != incoming
+
+
+def _preview_update_if_changed(item: Item, field: str, label: str, value):
+    current = getattr(item, field)
+    if not _values_differ(current, value):
+        return None
+    return f"{label}: {_import_value_display(current)} -> {_import_value_display(value)}"
+
+
+def _set_if_changed(item: Item, field: str, value):
+    if not _values_differ(getattr(item, field), value):
+        return False
+    setattr(item, field, value)
+    return True
+
+
 def _import_change_preview(item: Item, report_kind: str, values: dict):
     if item is None:
         return ["Create new item"] if report_kind != "expenses" else []
@@ -516,6 +543,9 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
         change = _preview_fill_if_missing(item, field, label, values.get(key))
         if change:
             changes.append(change)
+    price_change = _preview_update_if_changed(item, "sale_price", "Sale price", values.get("price"))
+    if price_change:
+        changes.append(price_change)
     if item.canceled:
         changes.append("Clear canceled flag")
     return changes
@@ -1304,7 +1334,14 @@ def create_app():
                         item.ebay_condition = condition
                 else:
                     changed = _set_if_missing(item, "platform", "eBay") or changed
-                    changed = _set_if_missing(item, "sale_price", price if price else None) or changed
+                    if report_kind == "orders":
+                        changed = _set_if_missing(item, "sale_price", price if price else None) or changed
+                    else:
+                        changed = (
+                            _set_if_missing(item, "sale_price", price if price else None) or
+                            _set_if_changed(item, "sale_price", price if price else None) or
+                            changed
+                        )
                     changed = _set_if_missing(item, "date_listed", date_listed) or changed
                     changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
                     if ebay_item_number:
@@ -1667,22 +1704,49 @@ def create_app():
             abort(404)
         return send_from_directory(app.config["UPLOAD_FOLDER"], image.filename)
 
-    @app.route("/")
-    @auth_required
-    def index():
-
-        status_filter = request.args.get("status", "all").strip().lower()
-        view_mode = request.args.get("view", "cards").strip().lower()
-        platform = request.args.get("platform", "").strip()
-        category = request.args.get("category", "").strip()
-        sort = request.args.get("sort", "newest").strip().lower()
-        q = request.args.get("q", "").strip()
-
-        query = Item.query
-        listed_expr = (
+    def _listed_expr():
+        return (
             (Item.ebay_item_number.isnot(None)) &
             (Item.ebay_item_number != "")
         )
+
+    def _needs_listing_info_expr():
+        return (
+            Item.sold.is_(False) &
+            Item.canceled.is_(False) &
+            or_(
+                ~Item.images.any(),
+                Item.cog.is_(None),
+                Item.sale_price.is_(None),
+                Item.ebay_item_number.is_(None),
+                Item.ebay_item_number == "",
+            )
+        )
+
+    def _inventory_sort_options():
+        return {
+            "newest": "Newest added",
+            "oldest": "Oldest added",
+            "az": "A-Z title",
+            "za": "Z-A title",
+            "date_listed_desc": "Date listed newest",
+            "date_listed_asc": "Date listed oldest",
+            "date_sold_desc": "Date sold newest",
+            "date_sold_asc": "Date sold oldest",
+            "price_desc": "Price high to low",
+            "price_asc": "Price low to high",
+            "profit_desc": "Profit high to low",
+            "profit_asc": "Profit low to high",
+        }
+
+    def _inventory_query(status_filter="all", platform="", category="", q=""):
+        status_filter = (status_filter or "all").strip().lower()
+        platform = (platform or "").strip()
+        category = (category or "").strip()
+        q = (q or "").strip()
+
+        query = Item.query
+        listed_expr = _listed_expr()
 
         if status_filter == "sold":
             query = query.filter(_shipped_sold_expr())
@@ -1690,6 +1754,8 @@ def create_app():
             query = query.filter(_pending_shipping_expr())
         elif status_filter == "sold_review":
             query = query.filter(_sold_review_expr())
+        elif status_filter == "needs_info":
+            query = query.filter(_needs_listing_info_expr())
         elif status_filter == "not_listed":
             query = query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr)
         elif status_filter == "listed":
@@ -1698,9 +1764,6 @@ def create_app():
             query = query.filter(Item.canceled.is_(True))
         else:
             status_filter = "all"
-
-        if view_mode not in {"cards", "table"}:
-            view_mode = "cards"
 
         if platform:
             query = query.filter(Item.platform == platform)
@@ -1723,20 +1786,11 @@ def create_app():
                 (Item.ebay_condition.ilike(like))
             )
 
-        sort_options = {
-            "newest": "Newest added",
-            "oldest": "Oldest added",
-            "az": "A-Z title",
-            "za": "Z-A title",
-            "date_listed_desc": "Date listed newest",
-            "date_listed_asc": "Date listed oldest",
-            "date_sold_desc": "Date sold newest",
-            "date_sold_asc": "Date sold oldest",
-            "price_desc": "Price high to low",
-            "price_asc": "Price low to high",
-            "profit_desc": "Profit high to low",
-            "profit_asc": "Profit low to high",
-        }
+        return query, status_filter
+
+    def _apply_inventory_sort(query, sort):
+        sort = (sort or "newest").strip().lower()
+        sort_options = _inventory_sort_options()
         if sort not in sort_options:
             sort = "newest"
 
@@ -1772,6 +1826,59 @@ def create_app():
         else:
             query = query.order_by(Item.sku.desc())
 
+        return query, sort
+
+    def _inventory_items_from_url(return_to):
+        parsed = urllib.parse.urlparse(return_to or "")
+        if parsed.path not in ("", "/"):
+            return []
+
+        params = urllib.parse.parse_qs(parsed.query)
+        get_param = lambda name, default="": (params.get(name, [default])[-1] or default)
+        query, _ = _inventory_query(
+            get_param("status", "all"),
+            get_param("platform"),
+            get_param("category"),
+            get_param("q"),
+        )
+        query, _ = _apply_inventory_sort(query, get_param("sort", "newest"))
+        return query.all()
+
+    def _item_neighbors(item, return_to):
+        items = _inventory_items_from_url(return_to)
+        if not items:
+            items = _apply_inventory_sort(Item.query, "newest")[0].all()
+        skus = [it.sku for it in items]
+        if item.sku not in skus:
+            items = _apply_inventory_sort(Item.query, "newest")[0].all()
+            skus = [it.sku for it in items]
+        if item.sku not in skus:
+            return None, None
+
+        index = skus.index(item.sku)
+        previous_item = items[index - 1] if index > 0 else None
+        next_item = items[index + 1] if index < len(items) - 1 else None
+        return previous_item, next_item
+
+    @app.route("/")
+    @auth_required
+    def index():
+
+        status_filter = request.args.get("status", "all").strip().lower()
+        view_mode = request.args.get("view", "cards").strip().lower()
+        platform = request.args.get("platform", "").strip()
+        category = request.args.get("category", "").strip()
+        sort = request.args.get("sort", "newest").strip().lower()
+        q = request.args.get("q", "").strip()
+
+        if view_mode not in {"cards", "table"}:
+            view_mode = "cards"
+
+        listed_expr = _listed_expr()
+        query, status_filter = _inventory_query(status_filter, platform, category, q)
+        sort_options = _inventory_sort_options()
+        query, sort = _apply_inventory_sort(query, sort)
+
         items = query.all()
 
         platforms = get_distinct_values(Item, Item.platform)
@@ -1781,6 +1888,7 @@ def create_app():
             "all": Item.query.count(),
             "not_listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr).count(),
             "listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr).count(),
+            "needs_info": Item.query.filter(_needs_listing_info_expr()).count(),
             "sold_review": Item.query.filter(_sold_review_expr()).count(),
             "pending_shipping": Item.query.filter(_pending_shipping_expr()).count(),
             "sold": Item.query.filter(_shipped_sold_expr()).count(),
@@ -1803,6 +1911,57 @@ def create_app():
             q=q,
             current_url=request.full_path.rstrip("?"),
         )
+
+    @app.post("/items/bulk-update")
+    @auth_required
+    def items_bulk_update():
+        raw_skus = request.form.getlist("skus")
+        return_to = _safe_return_url(request.form.get("return_to")) or url_for("index")
+        source_location_raw = request.form.get("source_location", "")
+        cog_raw = request.form.get("cog", "")
+        source_location = source_location_raw.strip()
+        cog_text = cog_raw.strip()
+
+        skus = []
+        for raw_sku in raw_skus:
+            try:
+                skus.append(int(raw_sku))
+            except (TypeError, ValueError):
+                continue
+
+        if not skus:
+            flash("Select at least one item to bulk edit.", "warning")
+            return redirect(return_to)
+
+        update_location = source_location != ""
+        update_cog = cog_text != ""
+        if not update_location and not update_cog:
+            flash("Enter a location, a COG, or both before applying a bulk edit.", "warning")
+            return redirect(return_to)
+
+        cog_value = None
+        if update_cog:
+            cog_value = parse_float(cog_text)
+            if cog_value is None:
+                flash("COG must be a valid number.", "error")
+                return redirect(return_to)
+
+        items = Item.query.filter(Item.sku.in_(skus)).all()
+        updated = 0
+        for item in items:
+            changed = False
+            if update_location and item.source_location != source_location:
+                item.source_location = source_location
+                changed = True
+            if update_cog and item.cog != cog_value:
+                item.cog = cog_value
+                changed = True
+            if changed:
+                updated += 1
+
+        db.session.commit()
+        flash(f"Bulk updated {updated} item{'s' if updated != 1 else ''}.", "success")
+        return redirect(return_to)
 
     @app.route("/reports")
     @auth_required
@@ -2426,8 +2585,15 @@ def create_app():
     @auth_required
     def item_detail(sku: int):
         item = Item.query.get_or_404(sku)
-        return_to = _safe_return_url(request.args.get("return_to"))
-        return render_template("item_detail.html", item=item, return_to=return_to)
+        return_to = _safe_return_url(request.args.get("return_to")) or url_for("index")
+        previous_item, next_item = _item_neighbors(item, return_to)
+        return render_template(
+            "item_detail.html",
+            item=item,
+            return_to=return_to,
+            previous_item=previous_item,
+            next_item=next_item,
+        )
 
     @app.route("/item/<int:sku>/fetch-ebay-photo", methods=["POST"])
     @auth_required
