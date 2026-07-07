@@ -121,6 +121,30 @@ def _normalize_url(value: str):
     return urllib.parse.urlunparse(parsed)
 
 
+def _ebay_item_url(item_number: str):
+    item_number = (item_number or "").strip()
+    return f"https://www.ebay.com/itm/{item_number}" if item_number else None
+
+
+def _extract_ebay_item_number(url: str):
+    url = _normalize_url(url)
+    if not url or not _host_allowed_for_ebay_page(url):
+        return None
+    match = re.search(r"/itm/(?:[^/?#]+/)?(\d{8,})", urllib.parse.urlparse(url).path)
+    return match.group(1) if match else None
+
+
+def _sync_ebay_url_from_number(item: Item):
+    item_number = (item.ebay_item_number or "").strip()
+    if not item_number:
+        return False
+    canonical_url = _ebay_item_url(item_number)
+    if item.ebay_item_url != canonical_url:
+        item.ebay_item_url = canonical_url
+        return True
+    return False
+
+
 def _host_allowed_for_ebay_page(url: str) -> bool:
     try:
         host = (urllib.parse.urlparse(url).hostname or "").lower()
@@ -546,6 +570,12 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
     price_change = _preview_update_if_changed(item, "sale_price", "Sale price", values.get("price"))
     if price_change:
         changes.append(price_change)
+    item_number_change = _preview_update_if_changed(item, "ebay_item_number", "eBay item #", values.get("ebay_item_number"))
+    if item_number_change:
+        changes.append(item_number_change)
+    url_change = _preview_update_if_changed(item, "ebay_item_url", "eBay item URL", values.get("ebay_item_url"))
+    if url_change:
+        changes.append(url_change)
     if item.canceled:
         changes.append("Clear canceled flag")
     return changes
@@ -959,7 +989,7 @@ def create_app():
                     "date_listed": date_display if report_kind != "orders" else None,
                     "sale_date": date_display if report_kind == "orders" else None,
                     "ebay_item_number": ebay_item_number,
-                    "ebay_item_url": f"https://www.ebay.com/itm/{ebay_item_number}" if ebay_item_number else None,
+                    "ebay_item_url": _ebay_item_url(ebay_item_number),
                     "custom_sku": custom_sku,
                     "category": category,
                     "condition": condition,
@@ -1126,7 +1156,7 @@ def create_app():
                 "date_listed": date_display if report_kind != "orders" else None,
                 "sale_date": date_display if report_kind == "orders" else None,
                 "ebay_item_number": ebay_item_number,
-                "ebay_item_url": f"https://www.ebay.com/itm/{ebay_item_number}" if ebay_item_number else None,
+                "ebay_item_url": _ebay_item_url(ebay_item_number),
                 "custom_sku": custom_sku,
                 "category": category,
                 "condition": condition,
@@ -1324,7 +1354,7 @@ def create_app():
                         item.date_listed = date_listed
                     if ebay_item_number:
                         item.ebay_item_number = ebay_item_number
-                        item.ebay_item_url = f"https://www.ebay.com/itm/{ebay_item_number}"
+                        item.ebay_item_url = _ebay_item_url(ebay_item_number)
                     if custom_sku:
                         item.ebay_custom_label = custom_sku
                     if category:
@@ -1343,9 +1373,23 @@ def create_app():
                             changed
                         )
                     changed = _set_if_missing(item, "date_listed", date_listed) or changed
-                    changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
+                    if report_kind == "orders":
+                        changed = _set_if_missing(item, "ebay_item_number", ebay_item_number) or changed
+                    else:
+                        changed = (
+                            _set_if_missing(item, "ebay_item_number", ebay_item_number) or
+                            _set_if_changed(item, "ebay_item_number", ebay_item_number) or
+                            changed
+                        )
                     if ebay_item_number:
-                        changed = _set_if_missing(item, "ebay_item_url", f"https://www.ebay.com/itm/{ebay_item_number}") or changed
+                        if report_kind == "orders":
+                            changed = _set_if_missing(item, "ebay_item_url", _ebay_item_url(ebay_item_number)) or changed
+                        else:
+                            changed = (
+                                _set_if_missing(item, "ebay_item_url", _ebay_item_url(ebay_item_number)) or
+                                _set_if_changed(item, "ebay_item_url", _ebay_item_url(ebay_item_number)) or
+                                changed
+                            )
                     changed = _set_if_missing(item, "ebay_custom_label", custom_sku) or changed
                     changed = _set_if_missing(item, "ebay_category", category) or changed
                     changed = _set_if_missing(item, "category", category) or changed
@@ -2494,6 +2538,8 @@ def create_app():
             prefill["notes"] = "\n".join([p for p in [prefill["notes"], "\n".join(draft_bits)] if p]).strip()
 
         if request.method == "POST":
+            submitted_ebay_url = _normalize_url(request.form.get("ebay_item_url", ""))
+            extracted_item_number = _extract_ebay_item_number(submitted_ebay_url)
             item = Item(
                 item_name=request.form.get("item_name", "").strip(),
                 category=request.form.get("category", "").strip() or None,
@@ -2502,7 +2548,8 @@ def create_app():
                 notes=request.form.get("notes", "").strip() or None,
                 source_location=request.form.get("source_location", "").strip() or None,
                 barcode=request.form.get("barcode", "").strip() or None,
-                ebay_item_url=_normalize_url(request.form.get("ebay_item_url", "")),
+                ebay_item_number=extracted_item_number,
+                ebay_item_url=_ebay_item_url(extracted_item_number) if extracted_item_number else submitted_ebay_url,
                 cog=parse_float(request.form.get("cog")),
                 sale_price=parse_float(request.form.get("sale_price")),
                 ad_fee=parse_float(request.form.get("ad_fee")),
@@ -2691,7 +2738,16 @@ def create_app():
             item.notes = request.form.get("notes", "").strip() or None
             item.source_location = request.form.get("source_location", "").strip() or None
             item.barcode = request.form.get("barcode", "").strip() or None
-            item.ebay_item_url = _normalize_url(request.form.get("ebay_item_url", ""))
+            submitted_ebay_url = _normalize_url(request.form.get("ebay_item_url", ""))
+            extracted_item_number = _extract_ebay_item_number(submitted_ebay_url)
+            if extracted_item_number:
+                item.ebay_item_number = extracted_item_number
+                item.ebay_item_url = _ebay_item_url(extracted_item_number)
+            elif submitted_ebay_url:
+                item.ebay_item_url = submitted_ebay_url
+            else:
+                if not _sync_ebay_url_from_number(item):
+                    item.ebay_item_url = None
 
             item.cog = parse_float(request.form.get("cog"))
             item.sale_price = parse_float(request.form.get("sale_price"))

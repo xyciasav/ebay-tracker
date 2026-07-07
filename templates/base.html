@@ -167,6 +167,7 @@
       border: 1px solid var(--border);
       background: var(--pillBg);
       font-size: 12px;
+      white-space:nowrap;
     }
 
     .pill.sold { border-color: color-mix(in srgb, var(--success) 45%, var(--border)); color: var(--success); }
@@ -213,6 +214,7 @@
       align-items:center;
       gap:10px;
     }
+    .status-tab span{ white-space:nowrap; }
     .status-tab:visited{ color:var(--text); }
     .status-tab b{ font-size:22px; }
     .status-tab.active{
@@ -332,8 +334,12 @@
     }
     .meta-row{
       display:flex;
-      flex-wrap:wrap;
+      flex-wrap:nowrap;
       gap:6px;
+      max-width:100%;
+      overflow-x:auto;
+      overflow-y:hidden;
+      scrollbar-width:thin;
     }
     .meta-row span{
       border:1px solid var(--border);
@@ -342,22 +348,30 @@
       font-size:12px;
       color:var(--muted);
       background:var(--pillBg);
-      max-width:100%;
+      flex:0 0 auto;
+      max-width:220px;
       overflow:hidden;
       text-overflow:ellipsis;
+      white-space:nowrap;
     }
     .checklist{
-      display:grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      display:flex;
+      flex-wrap:nowrap;
       gap:6px;
+      max-width:100%;
+      overflow-x:auto;
+      overflow-y:hidden;
+      scrollbar-width:thin;
     }
     .checklist span{
+      flex:1 0 64px;
       border:1px dashed var(--border);
       border-radius:8px;
       padding:6px 4px;
       text-align:center;
       color:var(--muted);
       font-size:12px;
+      white-space:nowrap;
     }
     .checklist span.done{
       border-style:solid;
