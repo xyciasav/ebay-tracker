@@ -339,6 +339,29 @@ def _append_note_tag(item, tag: str):
         item.notes = note + ("\n" if note else "") + tag
 
 
+def _apply_note_financial_tags(item: Item):
+    notes = item.notes or ""
+    changed = False
+    tag_fields = [
+        ("shipping", ("eBayActualShipping",)),
+        ("ebay_fee", ("eBayFee", "eBayCollectedCharges")),
+        ("ad_fee", ("eBayAdFee",)),
+    ]
+    for field, tags in tag_fields:
+        if getattr(item, field) is not None:
+            continue
+        for tag in tags:
+            match = re.search(rf"(?:^|\n){re.escape(tag)}:([0-9.,-]+)", notes)
+            if not match:
+                continue
+            value = parse_float(match.group(1))
+            if value is not None:
+                setattr(item, field, abs(value))
+                changed = True
+                break
+    return changed
+
+
 def _sold_review_expr():
     return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False)) & (Item.canceled.is_(False))
 
@@ -380,6 +403,19 @@ def _is_canceled_order_row(row: dict) -> bool:
                 return True
 
     return False
+
+
+def _expense_bucket(row: dict):
+    grouping = (row.get("Expense grouping") or "").strip().lower()
+    category = (row.get("Expense category") or "").strip().lower()
+    expense_type = (row.get("Expense type") or "").strip().lower()
+    if "shipping" in grouping or "label" in category or "shipping label" in expense_type:
+        return "shipping"
+    if "ad fee" in category or "promoted listings" in expense_type:
+        return "ad_fee"
+    if "transaction fee" in category or "final value fee" in expense_type:
+        return "ebay_fee"
+    return None
 
 
 def _safe_return_url(value: str):
@@ -506,6 +542,12 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
     changes = []
     if report_kind == "expenses":
         change = _preview_fill_if_missing(item, "shipping", "Actual shipping", values.get("shipping_cost"))
+        if change:
+            changes.append(change)
+        change = _preview_fill_if_missing(item, "ebay_fee", "eBay fee", values.get("ebay_fee"))
+        if change:
+            changes.append(change)
+        change = _preview_fill_if_missing(item, "ad_fee", "Ad fee", values.get("ad_fee"))
         if change:
             changes.append(change)
         if not item.sold:
@@ -884,30 +926,33 @@ def create_app():
             if report_kind == "expenses":
                 grouped = {}
                 for r in parsed_rows:
-                    grouping = (r.get("Expense grouping") or "").strip().lower()
-                    category = (r.get("Expense category") or "").strip().lower()
-                    expense_type = (r.get("Expense type") or "").strip().lower()
                     order_number = (r.get("Order number") or "").strip()
                     if not order_number or order_number == "--":
                         continue
-                    if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                    bucket = _expense_bucket(r)
+                    if not bucket:
                         continue
                     amount = parse_float(r.get("Net expense"))
                     if amount is None:
                         continue
-                    grouped.setdefault(order_number, 0.0)
-                    grouped[order_number] += amount
+                    grouped.setdefault(order_number, {"shipping": 0.0, "ebay_fee": 0.0, "ad_fee": 0.0})
+                    grouped[order_number][bucket] += abs(amount)
 
-                for order_number, shipping_total in sorted(grouped.items()):
-                    shipping_cost = abs(shipping_total)
+                for order_number, totals in sorted(grouped.items()):
                     item = existing_by_order.get(order_number)
-                    expected_changes = _import_change_preview(item, "expenses", {"shipping_cost": shipping_cost})
+                    expected_changes = _import_change_preview(item, "expenses", {
+                        "shipping_cost": totals.get("shipping") or None,
+                        "ebay_fee": totals.get("ebay_fee") or None,
+                        "ad_fee": totals.get("ad_fee") or None,
+                    })
                     rows.append({
                         "row_idx": global_idx,
                         "file_name": report_name,
                         "report_kind": report_kind,
                         "order_number": order_number,
-                        "shipping_cost": shipping_cost,
+                        "shipping_cost": totals.get("shipping") or None,
+                        "ebay_fee": totals.get("ebay_fee") or None,
+                        "ad_fee": totals.get("ad_fee") or None,
                         "flagged": item is not None,
                         "best_match_id": item.sku if item else None,
                         "best_match_title": item.item_name if item else None,
@@ -1234,22 +1279,19 @@ def create_app():
             if report_kind == "expenses":
                 grouped = {}
                 for r in parsed_rows:
-                    grouping = (r.get("Expense grouping") or "").strip().lower()
-                    category = (r.get("Expense category") or "").strip().lower()
-                    expense_type = (r.get("Expense type") or "").strip().lower()
                     order_number = (r.get("Order number") or "").strip()
                     if not order_number or order_number == "--":
                         continue
-                    if "shipping" not in grouping and "label" not in category and "shipping label" not in expense_type:
+                    bucket = _expense_bucket(r)
+                    if not bucket:
                         continue
                     amount = parse_float(r.get("Net expense"))
                     if amount is None:
                         continue
-                    grouped.setdefault(order_number, 0.0)
-                    grouped[order_number] += amount
+                    grouped.setdefault(order_number, {"shipping": 0.0, "ebay_fee": 0.0, "ad_fee": 0.0})
+                    grouped[order_number][bucket] += abs(amount)
 
-                for order_number, shipping_total in sorted(grouped.items()):
-                    shipping_cost = abs(shipping_total)
+                for order_number, totals in sorted(grouped.items()):
                     decision = request.form.get(f"decision_{action_idx}", "skip")
                     match_id = request.form.get(f"matchid_{action_idx}")
                     action_idx += 1
@@ -1263,14 +1305,24 @@ def create_app():
                         continue
 
                     changed = False
+                    shipping_cost = totals.get("shipping") or None
+                    ebay_fee = totals.get("ebay_fee") or None
+                    ad_fee = totals.get("ad_fee") or None
                     changed = _set_if_missing(item, "shipping", shipping_cost) or changed
+                    changed = _set_if_missing(item, "ebay_fee", ebay_fee) or changed
+                    changed = _set_if_missing(item, "ad_fee", ad_fee) or changed
                     if not item.sold:
                         item.sold = True
                         changed = True
                     if changed and item.sold_confirmed:
                         item.sold_confirmed = False
                     if changed:
-                        _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
+                        if shipping_cost is not None:
+                            _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
+                        if ebay_fee is not None:
+                            _append_note_tag(item, f"eBayFee:{ebay_fee:.2f}")
+                        if ad_fee is not None:
+                            _append_note_tag(item, f"eBayAdFee:{ad_fee:.2f}")
                         updated += 1
                     else:
                         skipped += 1
@@ -2636,6 +2688,8 @@ def create_app():
     @auth_required
     def item_detail(sku: int):
         item = Item.query.get_or_404(sku)
+        if _apply_note_financial_tags(item):
+            db.session.commit()
         return_to = _safe_return_url(request.args.get("return_to")) or url_for("index")
         previous_item, next_item = _item_neighbors(item, return_to)
         return render_template(

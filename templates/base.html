@@ -233,6 +233,29 @@
       gap:10px;
       align-items:center;
     }
+    .bulk-panel summary{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+      list-style:none;
+      font-weight:700;
+    }
+    .bulk-panel summary::-webkit-details-marker{ display:none; }
+    .bulk-panel summary::before{
+      content:"+";
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      margin-right:2px;
+      font-weight:800;
+    }
+    .bulk-panel[open] summary::before{ content:"–"; }
     .view-bar{
       display:flex;
       justify-content:space-between;

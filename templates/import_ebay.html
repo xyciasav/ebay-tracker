@@ -121,7 +121,15 @@
               {% endif %}
             </td>
             <td>{{ r.ebay_item_number or "" }}</td>
-            <td>{% if row_kind == "expenses" %}${{ "%.2f"|format(r.shipping_cost) }}{% else %}${{ "%.2f"|format(r.price) }}{% endif %}</td>
+            <td>
+              {% if row_kind == "expenses" %}
+                {% if r.shipping_cost %}<div>Ship ${{ "%.2f"|format(r.shipping_cost) }}</div>{% endif %}
+                {% if r.ebay_fee %}<div>Fee ${{ "%.2f"|format(r.ebay_fee) }}</div>{% endif %}
+                {% if r.ad_fee %}<div>Ad ${{ "%.2f"|format(r.ad_fee) }}</div>{% endif %}
+              {% else %}
+                ${{ "%.2f"|format(r.price) }}
+              {% endif %}
+            </td>
             <td>{{ r.date_display or "" }}</td>
             <td>{{ r.custom_sku or "" }}</td>
 

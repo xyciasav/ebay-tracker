@@ -88,35 +88,41 @@
   </form>
 </div>
 
-<form id="bulkEditForm" class="card filter-card" method="post" action="{{ url_for('items_bulk_update') }}">
-  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="return_to" value="{{ current_url }}">
-  <div class="filter-grid">
-    <div>
-      <label>Bulk Location</label>
-      <input name="source_location" list="source_locations_list" placeholder="Set source/location for checked items">
-      <datalist id="source_locations_list">
-        {% for s in source_locations %}
-          <option value="{{ s }}"></option>
-        {% endfor %}
-      </datalist>
+<details class="card filter-card bulk-panel">
+  <summary>
+    <span>Bulk edit selected items</span>
+    <span class="small">Location / COG</span>
+  </summary>
+  <form id="bulkEditForm" method="post" action="{{ url_for('items_bulk_update') }}" style="margin-top:12px;">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to" value="{{ current_url }}">
+    <div class="filter-grid">
+      <div>
+        <label>Bulk Location</label>
+        <input name="source_location" list="source_locations_list" placeholder="Set source/location for checked items">
+        <datalist id="source_locations_list">
+          {% for s in source_locations %}
+            <option value="{{ s }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
+      <div>
+        <label>Bulk COG</label>
+        <input name="cog" inputmode="decimal" placeholder="Set COG">
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; min-height:42px;">
+        <label style="display:flex; gap:8px; align-items:center; margin:0; cursor:pointer;">
+          <input type="checkbox" id="bulkSelectAll" style="width:auto;">
+          Select shown
+        </label>
+      </div>
+      <div class="filter-actions">
+        <button class="btn secondary" type="submit">Apply to Selected</button>
+      </div>
     </div>
-    <div>
-      <label>Bulk COG</label>
-      <input name="cog" inputmode="decimal" placeholder="Set COG">
-    </div>
-    <div style="display:flex; gap:8px; align-items:center; min-height:42px;">
-      <label style="display:flex; gap:8px; align-items:center; margin:0; cursor:pointer;">
-        <input type="checkbox" id="bulkSelectAll" style="width:auto;">
-        Select shown
-      </label>
-    </div>
-    <div class="filter-actions">
-      <button class="btn secondary" type="submit">Apply to Selected</button>
-    </div>
-  </div>
-  <div class="small" style="margin-top:8px;">Blank bulk fields are ignored, so you can update only location or only COG.</div>
-</form>
+    <div class="small" style="margin-top:8px;">Blank bulk fields are ignored, so you can update only location or only COG.</div>
+  </form>
+</details>
 
 <div class="view-bar">
   <div class="small">
