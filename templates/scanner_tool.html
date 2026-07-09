@@ -395,6 +395,9 @@
     const hardwareNeedsModel = /\b(graphics card|gpu|video card|printer|scanner|console)\b/.test(q)
       && !/\b(rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b/.test(`${q} ${why}`);
     if (hardwareNeedsModel) return false;
+    const figureNeedsId = /\b(anime figure|figure|figurine|statue|doll|plush)\b/.test(q)
+      && !/\b(nendoroid|figma|funko|barbie|american girl|hasbro|mattel|bandai|banpresto|good smile|kotobukiya|hot toys|sideshow|pokemon|dragon ball|naruto|one piece|sailor moon|marvel|dc|star wars|disney|character|series|tag|label|maker|marked|number)\b/.test(`${q} ${why}`);
+    if (figureNeedsId) return false;
     const namedCategory = /\b(series|set|board game|card game|hardcover|paperback|book|books|novel|edition|trilogy|collection)\b/.test(q);
     const strongIpFormat = /\b(zelda|fallout|goosebumps|lord of the rings|hobbit|harry potter|pokemon|dungeons|dragons|d&d|tsr|pathfinder|warhammer|magic the gathering|mtg|star wars)\b/.test(q)
       && /\b(book|books|guide|manual|box set|set|collection|board game|card game|game|rpg|sourcebook)\b/.test(q);
@@ -412,6 +415,7 @@
     const vagueTerms = [
       "toy", "toys", "small box", "glass jar", "green plush", "plush toy",
       "white ceramic", "ceramic toilet", "star wars box", "book lot",
+      "anime figure", "blonde anime figure", "figure blonde",
       "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand",
       "left stack", "top box", "second box", "top", "used graphics card",
       "graphics card/pc hardware", "pc hardware", "computer hardware stack",

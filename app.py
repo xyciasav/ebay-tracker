@@ -506,7 +506,8 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         return True
 
     non_item_labels = (
-        "image analysis", "photo analysis", "shelf photo", "shelf triage",
+        "image analysis", "photo analysis", "analyze the image", "analysis of image",
+        "photo description", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
         "constructing the json", "drafting the json", "building the json",
         "json", "return json", "final json", "response json",
@@ -591,6 +592,7 @@ def _normalize_shelf_triage(parsed):
         vague_terms = (
             "toy", "toys", "box", "small box", "glass jar", "green plush",
             "plush toy", "white ceramic", "ceramic toilet", "star wars box",
+            "anime figure", "blonde anime figure", "figure blonde",
             "book lot", "unknown", "inspect", "check tag",
             "maker mark", "bottom left", "tv stand",
         )
@@ -868,6 +870,8 @@ def _triage_item_priority(item: dict):
 
     if re.search(r"\b(?:generic|unknown|check tag|inspect bottom|maybe|could be|looks like|hard to read|not visible)\b", text_blob):
         score -= 18
+    if re.search(r"\b(?:anime figure|figure|figurine|statue|doll|plush)\b", text_blob) and not re.search(r"\b(?:nendoroid|figma|funko|fisher-price|barbie|american girl|hasbro|mattel|bandai|banpresto|good smile|kotobukiya|hot toys|sideshow|pokemon|dragon ball|naruto|one piece|sailor moon|marvel|dc|star wars|disney|character|series|tag|label|maker|marked|number)\b", text_blob):
+        score -= 30
     if re.search(r"\b(?:graphics card|gpu|video card|printer|scanner|console)\b", text_blob) and not re.search(r"\b(?:rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b", text_blob):
         score -= 35
     if label in {"nintendo", "watchlist match: nintendo"} and re.search(r"\b(?:zelda|legend of zelda)\b", text_blob):
