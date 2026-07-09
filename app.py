@@ -510,7 +510,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "photo description", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
         "constructing the json", "drafting the json", "building the json",
-        "json", "return json", "final json", "response json",
+        "json", "return json", "final json", "response json", "item", "visible item",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -584,6 +584,17 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
 
 
 def _normalize_shelf_triage(parsed):
+    known_readable_titles = (
+        "exploding kittens",
+        "kids against maturity",
+        "a christmas story the party game",
+        "christmas story",
+        "goosebumps",
+        "legend of zelda",
+        "lord of the rings",
+        "the hobbit",
+    )
+
     def is_vague_lookup(item):
         text_value = " ".join([
             str(item.get("label") or ""),
@@ -597,6 +608,33 @@ def _normalize_shelf_triage(parsed):
             "maker mark", "bottom left", "tv stand",
         )
         return any(term in text_value for term in vague_terms)
+
+    def visible_title_match(item, visible_blob: str):
+        item_blob = _norm_title(" ".join([
+            str(item.get("label") or ""),
+            str(item.get("search_phrase") or ""),
+        ]))
+        for title in known_readable_titles:
+            title_norm = _norm_title(title)
+            if title_norm in visible_blob and title_norm in item_blob:
+                return title
+            if title_norm == "christmas story" and title_norm in visible_blob and "christmas story" in item_blob:
+                return "A Christmas Story The Party Game"
+        return ""
+
+    def promote_visible_readable_titles(items, visible_blob: str):
+        for item in items:
+            matched_title = visible_title_match(item, visible_blob)
+            if not matched_title:
+                continue
+            item["confidence"] = "high"
+            if not item.get("evidence"):
+                item["evidence"] = f"Detected text includes: {matched_title}."
+            if not item.get("why") or "readable" not in item["why"].lower():
+                item["why"] = (item.get("why") or "Readable title visible.")[:220]
+                if "readable" not in item["why"].lower():
+                    item["why"] = f"Readable title visible. {item['why']}".strip()[:260]
+        return items
 
     def normalize_list(key):
         value = parsed.get(key) if isinstance(parsed, dict) else []
@@ -675,6 +713,9 @@ def _normalize_shelf_triage(parsed):
             })
 
     visible_blob = " ".join(cleaned_visible_text).lower()
+    normalized_visible_blob = _norm_title(" ".join(cleaned_visible_text))
+    focus_first = promote_visible_readable_titles(focus_first, normalized_visible_blob)
+    maybe_check = promote_visible_readable_titles(maybe_check, normalized_visible_blob)
     if "one ring" not in visible_blob:
         for item in focus_first + maybe_check:
             item_text = f"{item.get('label', '')} {item.get('search_phrase', '')}".lower()
