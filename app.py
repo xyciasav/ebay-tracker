@@ -467,6 +467,7 @@ def _clean_triage_label(value: str):
     value = value.replace("“", '"').replace("”", '"').strip()
     value = value.replace('"', "")
     value = re.sub(r"\s*\((?:top|middle|bottom|left|right|second|third|fourth|shelf|bookshelf|check|inspect|too blurry|needs?)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s*/\s*hob$", " / Hobbit", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip(" .")
     value = value.strip('"')
     return value
@@ -488,6 +489,7 @@ def _clean_triage_search_phrase(value: str, fallback: str):
     if ". " in value:
         value = value.split(". ", 1)[0]
     value = re.sub(r"\s*\((?:check|inspect|too blurry|needs?)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s*/\s*hob$", " / Hobbit", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip(" .")
     return value or _clean_triage_label(fallback)
 
@@ -868,6 +870,8 @@ def _triage_item_priority(item: dict):
         score -= 18
     if re.search(r"\b(?:graphics card|gpu|video card|printer|scanner|console)\b", text_blob) and not re.search(r"\b(?:rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b", text_blob):
         score -= 35
+    if label in {"nintendo", "watchlist match: nintendo"} and re.search(r"\b(?:zelda|legend of zelda)\b", text_blob):
+        score -= 60
     if label in {"book", "books", "tv", "white console", "green plush", "stuffed animals"}:
         score -= 40
 
@@ -887,6 +891,13 @@ def _triage_dedupe_key(item: dict):
         "pc video": "graphics card",
         "pc video card": "graphics card",
         "video card": "graphics card",
+        "nintendo": "zelda" if "zelda" in value else "nintendo",
+        "legend zelda": "zelda",
+        "zelda": "zelda",
+        "lord rings hobbit": "lord of the rings hobbit",
+        "lord rings hob": "lord of the rings hobbit",
+        "lord of rings hob": "lord of the rings hobbit",
+        "lord of rings hobbit": "lord of the rings hobbit",
     }
     for needle, replacement in aliases.items():
         if needle in value:
@@ -1032,6 +1043,18 @@ def _text_has_watch_keyword(text_blob: str, keyword: str):
     return re.search(rf"\b{re.escape(keyword_norm)}\b", text_norm) is not None
 
 
+def _specific_watchlist_match_exists(scan_blob: str, keyword: str, promotions: list):
+    keyword_norm = _norm_title(keyword)
+    if keyword_norm == "nintendo":
+        child_terms = {"zelda", "legend of zelda", "pokemon", "switch", "wii", "gamecube", "nes", "snes", "n64"}
+        return any(
+            _norm_title(promo.get("keyword") or "") in child_terms
+            and _text_has_watch_keyword(scan_blob, promo.get("keyword") or "")
+            for promo in promotions
+        )
+    return False
+
+
 def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
     if not promotions:
         return triage
@@ -1051,6 +1074,8 @@ def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
     for promo in sorted(promotions, key=lambda p: priority_rank.get((p.get("priority") or "high").lower(), 1)):
         keyword = promo.get("keyword") or ""
         if not _text_has_watch_keyword(scan_blob, keyword):
+            continue
+        if _specific_watchlist_match_exists(scan_blob, keyword, promotions):
             continue
         label = promo.get("label") or keyword
         if label.lower() in existing_blob or keyword.lower() in existing_blob:
