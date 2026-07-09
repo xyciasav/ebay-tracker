@@ -313,13 +313,25 @@
     if (v.includes("low")) return "Inspect";
     return "Inspect";
   }
+  function triageChipClass(item) {
+    return isSpecificLookup(item) ? "confidence-high" : confidenceClass(item.confidence);
+  }
+  function triageChipLabel(item) {
+    return isSpecificLookup(item) ? "Lookup" : confidenceLabel(item.confidence);
+  }
   function isSpecificLookup(item) {
     const confidence = String(item.confidence || "").toLowerCase();
+    const why = String(item.why || "").toLowerCase();
     const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
-    if (!confidence.includes("high")) return false;
+    const lookupWorthy = confidence.includes("high") ||
+      (why.includes("readable") && why.includes("high confidence")) ||
+      why.includes("exact readable") ||
+      why.includes("specific readable") ||
+      why.includes("specific title");
+    if (!lookupWorthy) return false;
     const vagueTerms = [
       "toy", "toys", "box", "small box", "glass jar", "green plush", "plush toy",
-      "white ceramic", "ceramic toilet", "star wars box", "books", "book lot",
+      "white ceramic", "ceramic toilet", "star wars box", "book lot",
       "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand"
     ];
     if (vagueTerms.some((term) => q === term || q.includes(term))) return false;
@@ -360,7 +372,7 @@
           <div class="triage-item">
             <div class="triage-item-head">
               <div class="triage-item-title">${escapeHtml(item.label || "Visible item")}</div>
-              <span class="confidence-chip ${confidenceClass(item.confidence)}">${confidenceLabel(item.confidence)}</span>
+              <span class="confidence-chip ${triageChipClass(item)}">${triageChipLabel(item)}</span>
             </div>
             ${item.why ? `<div class="small triage-reason">${escapeHtml(item.why)}</div>` : ""}
             ${item.search_phrase ? `<div class="triage-search">Search: ${escapeHtml(item.search_phrase)}</div>` : ""}

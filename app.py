@@ -537,7 +537,7 @@ def _normalize_shelf_triage(parsed):
         vague_terms = (
             "toy", "toys", "box", "small box", "glass jar", "green plush",
             "plush toy", "white ceramic", "ceramic toilet", "star wars box",
-            "books", "book lot", "unknown", "inspect", "check tag",
+            "book lot", "unknown", "inspect", "check tag",
             "maker mark", "bottom left", "tv stand",
         )
         return any(term in text_value for term in vague_terms)
