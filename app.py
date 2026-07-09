@@ -394,14 +394,15 @@ def _parse_shelf_triage_text_fallback(text: str):
                 label, reason = reason, ""
             label = clean_line(label).strip('"')
             reason = clean_line(reason)
+        label, reason = _split_triage_label_reason(label, reason)
         if not label:
             return None
-        search_phrase = re.sub(r"\([^)]*\)", "", label).strip() or label
+        search_phrase = _clean_triage_search_phrase(label, label)
         return {
             "label": label[:140],
             "why": reason[:260],
             "search_phrase": search_phrase[:180],
-            "confidence": "",
+            "confidence": "medium" if reason and re.search(r"\b(?:valuable|collectible|popular|series|set|board game|hardcover|edition)\b", reason, flags=re.IGNORECASE) else "",
         }
 
     buckets = {
@@ -460,6 +461,34 @@ def _parse_shelf_triage_text_fallback(text: str):
     }
 
 
+def _clean_triage_label(value: str):
+    value = re.sub(r"\s+", " ", str(value or "")).strip()
+    value = value.replace("“", '"').replace("”", '"').strip()
+    value = value.replace('"', "")
+    value = re.sub(r"\s*\((?:top|middle|bottom|left|right|second|third|fourth|shelf|bookshelf)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s+", " ", value).strip(" .")
+    value = value.strip('"')
+    return value
+
+
+def _split_triage_label_reason(label: str, reason: str):
+    label = _clean_triage_label(label)
+    reason = re.sub(r"\s+", " ", str(reason or "")).strip()
+    sentence_match = re.match(r'^(.{4,90}?)\.\s+(.+)$', label)
+    if sentence_match and not reason:
+        label = _clean_triage_label(sentence_match.group(1))
+        reason = sentence_match.group(2).strip()
+    return label, reason
+
+
+def _clean_triage_search_phrase(value: str, fallback: str):
+    value = _clean_triage_label(value or fallback)
+    if ". " in value:
+        value = value.split(". ", 1)[0]
+    value = re.sub(r"\s+", " ", value).strip(" .")
+    return value or _clean_triage_label(fallback)
+
+
 def _is_noise_shelf_triage_item(item: dict, bucket: str):
     label_value = str(item.get("label") or "").strip().lower()
     search_value = str(item.get("search_phrase") or "").strip().lower()
@@ -504,7 +533,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     generic_terms = (
         "generic toy", "toy on", "yellow toy", "grey toy", "gray toy",
         "small toy", "toys", "misc toy", "unbranded toy",
-        "generic box", "unknown box", "small box on", "box on tv stand",
+        "generic box", "unknown box", "small box on", "small boxes on", "box on tv stand",
         "disney box", "nickelodeon box",
     )
     value_clues = (
@@ -556,13 +585,19 @@ def _normalize_shelf_triage(parsed):
             if not isinstance(entry, dict):
                 continue
             label = str(entry.get("label") or entry.get("item") or "Visible item").strip()
+            reason = str(entry.get("why") or entry.get("reason") or "").strip()
+            label, reason = _split_triage_label_reason(label, reason)
             if not label:
                 continue
+            search_phrase = _clean_triage_search_phrase(entry.get("search_phrase") or entry.get("query") or label, label)
+            confidence = str(entry.get("confidence") or "").strip()
+            if not confidence and re.search(r"\b(?:readable|specific|exact|popular|collectible|series|set|board game|hardcover|edition|valuable|value)\b", reason, flags=re.IGNORECASE):
+                confidence = "medium"
             item = {
                 "label": label[:140],
-                "why": str(entry.get("why") or entry.get("reason") or "").strip()[:260],
-                "search_phrase": str(entry.get("search_phrase") or entry.get("query") or label).strip()[:180],
-                "confidence": str(entry.get("confidence") or "").strip()[:40],
+                "why": reason[:260],
+                "search_phrase": search_phrase[:180],
+                "confidence": confidence[:40],
             }
             if is_vague_lookup(item) and "high" in item["confidence"].lower():
                 item["confidence"] = "medium"

@@ -324,8 +324,9 @@
     const why = String(item.why || "").toLowerCase();
     const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
     const words = q.split(/\s+/).filter(Boolean);
+    const namedCategory = /\b(series|set|board game|card game|hardcover|paperback|book|books|novel|edition|trilogy|collection)\b/.test(q);
     const lookupWorthy = confidence.includes("high") ||
-      (confidence.includes("medium") && words.length >= 2) ||
+      (confidence.includes("medium") && (words.length >= 3 || namedCategory)) ||
       (why.includes("readable") && why.includes("high confidence")) ||
       why.includes("exact readable") ||
       why.includes("specific readable") ||
