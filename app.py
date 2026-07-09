@@ -340,6 +340,31 @@ def _loads_json_object(text: str):
 
 
 def _parse_shelf_triage_text_fallback(text: str):
+    def clean_jsonish(value: str):
+        value = (value or "").replace('\\"', '"')
+        return re.sub(r"\s+", " ", value).strip()
+
+    def extract_jsonish_bucket(key: str):
+        key_match = re.search(rf'"{re.escape(key)}"\s*:\s*\[', text or "", flags=re.IGNORECASE)
+        if not key_match:
+            return []
+        start = key_match.end()
+        next_key = re.search(r'"\s*(?:focus_first|maybe_check|probably_skip|visible_text|summary)\s*"\s*:', (text or "")[start:], flags=re.IGNORECASE)
+        segment = (text or "")[start:start + next_key.start()] if next_key else (text or "")[start:]
+        items = []
+        for obj in re.findall(r"\{[^{}]*\}", segment, flags=re.DOTALL):
+            entry = {}
+            for field in ("label", "why", "search_phrase", "confidence"):
+                match = re.search(rf'"{field}"\s*:\s*"([^"]*)"', obj, flags=re.DOTALL)
+                if match:
+                    entry[field] = clean_jsonish(match.group(1))
+            if entry.get("label"):
+                entry.setdefault("search_phrase", entry["label"])
+                entry.setdefault("why", "")
+                entry.setdefault("confidence", "")
+                items.append(entry)
+        return items[:5]
+
     def clean_line(value: str):
         value = re.sub(r"^\s*[*\-•]+\s*", "", value or "")
         value = re.sub(r"^\s*\d+[.)]\s*", "", value)
@@ -350,7 +375,7 @@ def _parse_shelf_triage_text_fallback(text: str):
         line = clean_line(line)
         if not line or len(line) < 3:
             return None
-        lowered = line.lower()
+        lowered = line.lower().replace("_", " ")
         if lowered.startswith(("focus first", "maybe check", "probably skip", "summary", "visible text")):
             return None
 
@@ -360,8 +385,15 @@ def _parse_shelf_triage_text_fallback(text: str):
         elif " - " in line:
             label, reason = line.split(" - ", 1)
 
-        label = clean_line(label)
+        label = clean_line(label).strip('"')
         reason = clean_line(reason)
+        if re.fullmatch(r"item\s+\d+", label, flags=re.IGNORECASE) and reason:
+            if "." in reason:
+                label, reason = reason.split(".", 1)
+            else:
+                label, reason = reason, ""
+            label = clean_line(label).strip('"')
+            reason = clean_line(reason)
         if not label:
             return None
         search_phrase = re.sub(r"\([^)]*\)", "", label).strip() or label
@@ -373,14 +405,14 @@ def _parse_shelf_triage_text_fallback(text: str):
         }
 
     buckets = {
-        "focus_first": [],
-        "maybe_check": [],
-        "probably_skip": [],
+        "focus_first": extract_jsonish_bucket("focus_first"),
+        "maybe_check": extract_jsonish_bucket("maybe_check"),
+        "probably_skip": extract_jsonish_bucket("probably_skip"),
     }
     current = None
     for raw_line in (text or "").splitlines():
         line = clean_line(raw_line)
-        lowered = line.lower().strip(":")
+        lowered = line.lower().replace("_", " ").strip(":")
         if not line:
             continue
         if "focus first" in lowered:
@@ -392,6 +424,9 @@ def _parse_shelf_triage_text_fallback(text: str):
         if "probably skip" in lowered:
             current = "probably_skip"
             continue
+        if any(marker in lowered for marker in ("visible text", "final polish", "refining", "construct json", "extract visible")):
+            current = None
+            continue
         if current and len(buckets[current]) < 5 and re.match(r"^\s*(?:[*\-•]|\d+[.)])", raw_line):
             entry = entry_from_line(raw_line)
             if entry:
@@ -399,6 +434,17 @@ def _parse_shelf_triage_text_fallback(text: str):
 
     if not any(buckets.values()):
         return None
+
+    for key, values in buckets.items():
+        seen = set()
+        deduped = []
+        for item in values:
+            label = (item.get("label") or "").lower()
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            deduped.append(item)
+        buckets[key] = deduped[:5]
 
     visible_text = []
     for quoted in re.findall(r'"([^"]{2,60})"', text or ""):
