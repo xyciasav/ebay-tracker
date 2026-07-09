@@ -329,8 +329,9 @@
       </div>
     `;
   }
-  function renderTriageList(title, items) {
+  function renderTriageList(title, items, options={}) {
     const list = Array.isArray(items) ? items : [];
+    if (!list.length && options.hideEmpty) return "";
     const body = list.length
       ? list.map((item) => `
           <div class="triage-item">
@@ -351,6 +352,11 @@
     const visibleText = Array.isArray(triage.visible_text) && triage.visible_text.length
       ? `<details class="detected-text"><summary>Detected text (${triage.visible_text.length})</summary><div class="small">${triage.visible_text.map(escapeHtml).join(", ")}</div></details>`
       : "";
+    const resultsHtml = [
+      renderTriageList("Focus first", triage.focus_first),
+      renderTriageList("Maybe check", triage.maybe_check, {hideEmpty:true}),
+      renderTriageList("Probably skip", triage.probably_skip, {hideEmpty:true}),
+    ].filter(Boolean).join("");
     out.style.display = "block";
     el("shelfFocusGrid").style.display = "none";
     out.innerHTML = `
@@ -358,9 +364,7 @@
       <div class="triage-summary">${escapeHtml(friendlyTriageSummary(triage.summary))}</div>
       ${visibleText}
       <div class="triage-results">
-        ${renderTriageList("Focus first", triage.focus_first)}
-        ${renderTriageList("Maybe check", triage.maybe_check)}
-        ${renderTriageList("Probably skip", triage.probably_skip)}
+        ${resultsHtml}
       </div>
     `;
   }

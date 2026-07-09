@@ -460,6 +460,45 @@ def _parse_shelf_triage_text_fallback(text: str):
     }
 
 
+def _is_noise_shelf_triage_item(item: dict, bucket: str):
+    text_value = " ".join([
+        str(item.get("label") or ""),
+        str(item.get("why") or ""),
+        str(item.get("search_phrase") or ""),
+    ]).lower()
+    if not text_value.strip():
+        return True
+
+    hard_skip_terms = (
+        "paper", "papers", "clutter", "junk mail", "envelope", "stationery",
+        "ruler", "rulers", "marker", "pen", "glue", "loose cable", "cables",
+        "cords", "accessories", "generic books", "generic book", "random books",
+        "books/dvds", "books / dvds", "middle shelves", "bottom shelf",
+    )
+    if any(term in text_value for term in hard_skip_terms):
+        return True
+
+    generic_terms = (
+        "generic toy", "toy on", "yellow toy", "grey toy", "gray toy",
+        "small toy", "toys", "unknown toy", "misc toy", "unbranded toy",
+        "generic box", "unknown box", "disney box", "nickelodeon box",
+    )
+    value_clues = (
+        "brand", "branded", "model", "upc", "sealed", "new in box", "nib",
+        "vintage", "rare", "figure", "figurine", "action figure", "statue",
+        "doll", "plush", "glass", "porcelain", "ceramic", "crystal", "marked",
+        "star wars", "harry potter", "bluey", "disney", "nintendo", "sony",
+        "vizio", "lego", "pokemon", "funko", "barbie", "fisher-price",
+    )
+    if any(term in text_value for term in generic_terms) and not any(clue in text_value for clue in value_clues):
+        return True
+
+    if bucket == "probably_skip" and any(term in text_value for term in ("generic", "low value", "clutter", "paper")):
+        return True
+
+    return False
+
+
 def _normalize_shelf_triage(parsed):
     def normalize_list(key):
         value = parsed.get(key) if isinstance(parsed, dict) else []
@@ -477,12 +516,15 @@ def _normalize_shelf_triage(parsed):
             label = str(entry.get("label") or entry.get("item") or "Visible item").strip()
             if not label:
                 continue
-            items.append({
+            item = {
                 "label": label[:140],
                 "why": str(entry.get("why") or entry.get("reason") or "").strip()[:260],
                 "search_phrase": str(entry.get("search_phrase") or entry.get("query") or label).strip()[:180],
                 "confidence": str(entry.get("confidence") or "").strip()[:40],
-            })
+            }
+            if _is_noise_shelf_triage_item(item, key):
+                continue
+            items.append(item)
         return items
 
     visible_text = parsed.get("visible_text", []) if isinstance(parsed, dict) else []
@@ -2022,12 +2064,18 @@ def create_app():
             "The user only needs quick focus guidance, not inventory creation. Identify visible items, brands, "
             "titles, model numbers, UPCs, logos, sealed packaging, recognizable characters, and anything that "
             "looks worth checking eBay sold comps for first. Be honest about uncertainty and do not invent text "
-            "you cannot read. Return only valid JSON with this exact shape: "
+            "you cannot read. Do not waste slots on obvious trash, papers, clutter, generic cables, rulers, glue, "
+            "stationery, loose books, or vague searches like 'gray toy', 'toys', 'generic books', or 'box on shelf'. "
+            "Only include unbranded/generic-looking items if there is a useful value clue: figurine, action figure, "
+            "doll, plush, glass, porcelain, ceramic, crystal, vintage, sealed, marked, or a visible brand/IP/model. "
+            "If something is low-value clutter, omit it entirely instead of putting it in probably_skip. "
+            "Return only valid JSON with this exact shape: "
             '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
             '"maybe_check":[{"label":"item","why":"why maybe","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"probably_skip":[{"label":"item","why":"why likely low priority","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"visible_text":["short visible text snippets"]}. '
-            "Limit each list to 5 items. Keep each reason short. If unsure, use confidence low."
+            "Limit focus_first to the best 5 real leads. Limit maybe_check to real maybe leads. Use probably_skip only "
+            "for reseller-relevant warnings, not ordinary clutter; it may be empty. Keep each reason short. If unsure, use confidence low."
         )
 
         headers = {"Content-Type": "application/json"}
