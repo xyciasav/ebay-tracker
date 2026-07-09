@@ -29,6 +29,7 @@ This project is designed to help you **track inventory from acquisition to sale*
 ### Scanner & Comps Tool
 - Barcode scanning (UPC/EAN) on mobile
 - Quick links to eBay sold & active comps
+- Shelf photo triage to quickly spot items worth checking first
 - Deal estimator:
   - Enter avg sold price + COG
   - Calculates profit, margin, and break-even max COG
@@ -93,6 +94,9 @@ Notes
 
 - Barcode scanning requires HTTPS on mobile browsers
 - Chrome for Android works best for camera access
+- Shelf photo triage is optional. For local vision, set `LM_STUDIO_URL` or
+  `VISION_API_BASE` plus `VISION_MODEL`. If no local URL is configured, hosted
+  OpenAI vision can be used with `OPENAI_API_KEY` and `OPENAI_VISION_MODEL`.
 - SQLite is used by default but can be swapped for Postgres
 - Docker deployments require `FLASK_SECRET_KEY`, `BASIC_AUTH_USER`, and
   `BASIC_AUTH_PASS` in a local `.env` file. Start with `.env.example` and do

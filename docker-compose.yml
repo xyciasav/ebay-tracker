@@ -12,6 +12,12 @@ services:
       BASIC_AUTH_PASS: ${BASIC_AUTH_PASS:?Set BASIC_AUTH_PASS in .env}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-20971520}
       MAX_PHOTOS_PER_ITEM: ${MAX_PHOTOS_PER_ITEM:-12}
+      LM_STUDIO_URL: ${LM_STUDIO_URL:-}
+      VISION_API_BASE: ${VISION_API_BASE:-}
+      VISION_API_KEY: ${VISION_API_KEY:-}
+      VISION_MODEL: ${VISION_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-5.5}
     volumes:
       - ./data:/app/instance
       - ./uploads:/app/uploads

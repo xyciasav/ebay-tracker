@@ -1,10 +1,11 @@
 import os
 import hmac
 import secrets
+import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from sqlalchemy import func, case, text, or_
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, Response, abort, session
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, Response, abort, session, jsonify
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -246,6 +247,125 @@ def _save_image_from_url(item: Item, image_url: str, upload_folder: str):
 
     db.session.add(ItemImage(item_sku=item.sku, filename=stored_name))
     return stored_name
+
+
+def _prepare_shelf_triage_image(file_storage, max_size: int = 1280):
+    data = file_storage.read()
+    if not data:
+        raise ValueError("Choose a shelf photo first.")
+    if len(data) > 12 * 1024 * 1024:
+        raise ValueError("Shelf photo is too large. Try a closer crop or a smaller photo.")
+
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            img = ImageOps.exif_transpose(img)
+            img.thumbnail((max_size, max_size))
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+            out = io.BytesIO()
+            img.save(out, format="JPEG", optimize=True, quality=82)
+            encoded = base64.b64encode(out.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        raise ValueError("That file does not look like a readable image.")
+
+
+def _extract_openai_response_text(payload: dict):
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    pieces = []
+    for output in payload.get("output", []) or []:
+        for content in output.get("content", []) or []:
+            text = content.get("text") or content.get("output_text")
+            if isinstance(text, str) and text.strip():
+                pieces.append(text.strip())
+    return "\n".join(pieces).strip()
+
+
+def _extract_chat_completion_text(payload: dict):
+    choices = payload.get("choices", []) if isinstance(payload, dict) else []
+    if not choices:
+        return ""
+    content = ((choices[0] or {}).get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        pieces = []
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                pieces.append(part["text"].strip())
+        return "\n".join(x for x in pieces if x).strip()
+    return ""
+
+
+def _vision_api_endpoint(base_url: str):
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return None
+    if base.endswith("/chat/completions") or base.endswith("/responses"):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
+
+
+def _loads_json_object(text: str):
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start:end + 1])
+        raise
+
+
+def _normalize_shelf_triage(parsed):
+    def normalize_list(key):
+        value = parsed.get(key) if isinstance(parsed, dict) else []
+        if isinstance(value, str):
+            value = [{"label": value}]
+        if not isinstance(value, list):
+            value = []
+
+        items = []
+        for entry in value[:5]:
+            if isinstance(entry, str):
+                entry = {"label": entry}
+            if not isinstance(entry, dict):
+                continue
+            label = str(entry.get("label") or entry.get("item") or "Visible item").strip()
+            if not label:
+                continue
+            items.append({
+                "label": label[:140],
+                "why": str(entry.get("why") or entry.get("reason") or "").strip()[:260],
+                "search_phrase": str(entry.get("search_phrase") or entry.get("query") or label).strip()[:180],
+                "confidence": str(entry.get("confidence") or "").strip()[:40],
+            })
+        return items
+
+    visible_text = parsed.get("visible_text", []) if isinstance(parsed, dict) else []
+    if isinstance(visible_text, str):
+        visible_text = [visible_text]
+    if not isinstance(visible_text, list):
+        visible_text = []
+
+    return {
+        "summary": str(parsed.get("summary") or "Shelf triage complete.").strip()[:300] if isinstance(parsed, dict) else "Shelf triage complete.",
+        "focus_first": normalize_list("focus_first"),
+        "maybe_check": normalize_list("maybe_check"),
+        "probably_skip": normalize_list("probably_skip"),
+        "visible_text": [str(x).strip()[:80] for x in visible_text[:12] if str(x).strip()],
+    }
 
 
 def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
@@ -1722,6 +1842,128 @@ def create_app():
         db.session.commit()
         flash(f"Quick draft created: SKU #{item.sku}.", "success")
         return redirect(url_for("scanner_tool", created=item.sku))
+
+    @app.post("/tools/scanner/shelf-triage")
+    @auth_required
+    def scanner_shelf_triage():
+        photo = request.files.get("photo")
+        if not photo:
+            return jsonify({"ok": False, "error": "Choose a shelf photo first."}), 400
+
+        try:
+            image_data_url = _prepare_shelf_triage_image(photo)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        local_base = (
+            os.environ.get("VISION_API_BASE")
+            or os.environ.get("LM_STUDIO_URL")
+            or ""
+        ).strip()
+        local_endpoint = _vision_api_endpoint(local_base)
+        using_local_vision = bool(local_endpoint)
+        api_key = (
+            os.environ.get("VISION_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or ""
+        ).strip()
+
+        if not using_local_vision and not api_key:
+            return jsonify({
+                "ok": False,
+                "error": "Set LM_STUDIO_URL/VISION_API_BASE for local vision, or set OPENAI_API_KEY for hosted vision.",
+            }), 400
+
+        model = (
+            os.environ.get("VISION_MODEL")
+            or os.environ.get("OPENAI_VISION_MODEL")
+            or ("local-vision" if using_local_vision else "gpt-5.5")
+        ).strip()
+        prompt = (
+            "You are helping a fast-moving eBay reseller triage a shelf photo in a store or storage room. "
+            "The user only needs quick focus guidance, not inventory creation. Identify visible items, brands, "
+            "titles, model numbers, UPCs, logos, sealed packaging, recognizable characters, and anything that "
+            "looks worth checking eBay sold comps for first. Be honest about uncertainty and do not invent text "
+            "you cannot read. Return JSON only with this shape: "
+            '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
+            '"maybe_check":[{"label":"item","why":"why maybe","search_phrase":"search phrase","confidence":"low|medium|high"}],'
+            '"probably_skip":[{"label":"item","why":"why likely low priority","search_phrase":"search phrase","confidence":"low|medium|high"}],'
+            '"visible_text":["short visible text snippets"]}. '
+            "Limit each list to 5 items. Keep each reason short."
+        )
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        try:
+            if using_local_vision:
+                body = {
+                    "model": model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_data_url}},
+                        ],
+                    }],
+                    "max_tokens": 900,
+                    "temperature": 0.2,
+                }
+                req = urllib.request.Request(
+                    local_endpoint,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers=headers,
+                    method="POST",
+                )
+            else:
+                body = {
+                    "model": model,
+                    "input": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": image_data_url, "detail": "low"},
+                        ],
+                    }],
+                    "max_output_tokens": 900,
+                }
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/responses",
+                    data=json.dumps(body).encode("utf-8"),
+                    headers=headers,
+                    method="POST",
+                )
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:700]
+            return jsonify({
+                "ok": False,
+                "error": f"Vision model could not analyze the photo ({exc.code}). {detail}",
+            }), 502
+        except Exception as exc:
+            return jsonify({
+                "ok": False,
+                "error": f"Vision photo analysis failed: {exc}",
+            }), 502
+
+        text = _extract_chat_completion_text(payload) if using_local_vision else _extract_openai_response_text(payload)
+        if not text:
+            return jsonify({"ok": False, "error": "Vision model returned no triage text."}), 502
+
+        try:
+            triage = _normalize_shelf_triage(_loads_json_object(text))
+        except Exception:
+            triage = _normalize_shelf_triage({
+                "summary": text,
+                "focus_first": [],
+                "maybe_check": [],
+                "probably_skip": [],
+                "visible_text": [],
+            })
+
+        return jsonify({"ok": True, "triage": triage})
 
 
     @app.route("/uploads/items/<path:filename>")

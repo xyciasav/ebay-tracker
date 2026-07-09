@@ -55,6 +55,14 @@
   .focus-card{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); }
   .focus-card b{ display:block; margin-bottom:4px; }
   .focus-card .small{ line-height:1.35; }
+  .triage-results{ display:grid; gap:10px; margin-top:10px; }
+  .triage-column{ border:1px solid var(--border2); border-radius:16px; padding:12px; background:var(--soft); }
+  .triage-column h4{ margin:0 0 8px; }
+  .triage-item{ border-top:1px solid var(--border); padding-top:10px; margin-top:10px; }
+  .triage-item:first-of-type{ border-top:0; padding-top:0; margin-top:0; }
+  .triage-item-title{ font-weight:800; }
+  .triage-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .triage-actions .btn{ padding:8px 10px; font-size:13px; }
   .quick-details{ border:1px solid var(--border2); border-radius:14px; background:var(--card); overflow:hidden; }
   .quick-details summary{ cursor:pointer; padding:14px; font-weight:800; list-style:none; }
   .quick-details summary::-webkit-details-marker{ display:none; }
@@ -196,7 +204,10 @@
     <input id="shelfPhotoInput" type="file" accept="image/*" capture="environment">
     <img id="shelfPhotoPreview" class="shelf-preview" alt="Shelf photo preview">
     <div class="scanner-actions">
+      <button type="button" class="btn" id="btnAnalyzeShelf">Analyze Shelf Photo</button>
       <button type="button" class="btn secondary" id="btnShelfExplain">Show focus rules</button>
+    </div>
+    <div class="scanner-actions">
       <button type="button" class="btn secondary" id="btnClearShelfPhoto">Clear Photo</button>
     </div>
     <div id="shelfTriageOutput" class="triage-note" style="display:none; margin-top:10px;"></div>
@@ -255,6 +266,90 @@
   }
   function ebayActiveUrl(q) {
     return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`;
+  }
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+  function triageSearchButtons(item) {
+    const q = (item.search_phrase || item.label || "").trim();
+    if (!q) return "";
+    return `
+      <div class="triage-actions">
+        <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="${escapeHtml(ebaySoldUrl(q))}">Sold comps</a>
+        <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="${escapeHtml(ebayActiveUrl(q))}">Active</a>
+      </div>
+    `;
+  }
+  function renderTriageList(title, items) {
+    const list = Array.isArray(items) ? items : [];
+    const body = list.length
+      ? list.map((item) => `
+          <div class="triage-item">
+            <div class="triage-item-title">${escapeHtml(item.label || "Visible item")}</div>
+            ${item.confidence ? `<div class="small">Confidence: ${escapeHtml(item.confidence)}</div>` : ""}
+            ${item.why ? `<div class="small">${escapeHtml(item.why)}</div>` : ""}
+            ${item.search_phrase ? `<div class="small">Search: ${escapeHtml(item.search_phrase)}</div>` : ""}
+            ${triageSearchButtons(item)}
+          </div>
+        `).join("")
+      : `<div class="small">Nothing obvious in this bucket.</div>`;
+    return `<div class="triage-column"><h4>${escapeHtml(title)}</h4>${body}</div>`;
+  }
+  function renderShelfTriage(triage) {
+    const out = el("shelfTriageOutput");
+    const visibleText = Array.isArray(triage.visible_text) && triage.visible_text.length
+      ? `<div class="small" style="margin-top:10px;">Visible text: ${triage.visible_text.map(escapeHtml).join(", ")}</div>`
+      : "";
+    out.style.display = "block";
+    el("shelfFocusGrid").style.display = "none";
+    out.innerHTML = `
+      <div><b>AI shelf triage</b></div>
+      <div class="small">${escapeHtml(triage.summary || "Here is what looks worth checking first.")}</div>
+      ${visibleText}
+      <div class="triage-results">
+        ${renderTriageList("Focus first", triage.focus_first)}
+        ${renderTriageList("Maybe check", triage.maybe_check)}
+        ${renderTriageList("Probably skip", triage.probably_skip)}
+      </div>
+    `;
+  }
+  async function analyzeShelfPhoto() {
+    const input = el("shelfPhotoInput");
+    const file = input?.files?.[0];
+    const out = el("shelfTriageOutput");
+    if (!file) {
+      alert("Choose or take a shelf photo first.");
+      return;
+    }
+    out.style.display = "block";
+    el("shelfFocusGrid").style.display = "none";
+    out.textContent = "Analyzing shelf photo... looking for brands, titles, sealed items, UPCs, and anything worth comping first.";
+
+    const form = new FormData();
+    const token = document.querySelector('input[name="_csrf_token"]')?.value || "";
+    form.append("_csrf_token", token);
+    form.append("photo", file);
+
+    try {
+      const res = await fetch("{{ url_for('scanner_shelf_triage') }}", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        out.textContent = data.error || "Shelf triage failed.";
+        return;
+      }
+      renderShelfTriage(data.triage || {});
+    } catch(err) {
+      out.textContent = "Shelf triage failed: " + (err?.message || err);
+    }
   }
 
   const LS_KEY = "ebayTrackerScannerDraft";
@@ -413,6 +508,7 @@
     el("btnCloseBarcode").addEventListener("click", stopScanner);
     el("btnCalcDeal").addEventListener("click", calculateDeal);
     el("btnClearDraft").addEventListener("click", clearDraftState);
+    el("btnAnalyzeShelf")?.addEventListener("click", analyzeShelfPhoto);
     el("btnUseBarcodeTitle").addEventListener("click", () => {
       const code = el("barcode").value.trim();
       if (!code) return;
@@ -442,7 +538,7 @@
       preview.style.display = "block";
       el("shelfTriageOutput").style.display = "block";
       el("shelfFocusGrid").style.display = "grid";
-      el("shelfTriageOutput").textContent = "Photo loaded. With AI vision wired in, this would return a short priority list: the items most worth pulling off the shelf and comping first.";
+      el("shelfTriageOutput").textContent = "Photo loaded. Tap Analyze Shelf Photo to get a quick focus-first list.";
     });
 
     el("btnShelfExplain")?.addEventListener("click", () => {
