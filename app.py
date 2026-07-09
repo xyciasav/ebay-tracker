@@ -506,7 +506,8 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     non_item_labels = (
         "image analysis", "photo analysis", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
-        "constructing the json", "json", "return json", "final json", "response json",
+        "constructing the json", "drafting the json", "building the json",
+        "json", "return json", "final json", "response json",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -626,7 +627,7 @@ def _normalize_shelf_triage(parsed):
             if _is_noise_shelf_triage_item(item, key):
                 continue
             items.append(item)
-            if len(items) >= 5:
+            if len(items) >= 8:
                 break
         return items
 
@@ -701,8 +702,8 @@ def _normalize_shelf_triage(parsed):
 
     return {
         "summary": str(parsed.get("summary") or "Shelf triage complete.").strip()[:300] if isinstance(parsed, dict) else "Shelf triage complete.",
-        "focus_first": focus_first[:5],
-        "maybe_check": maybe_check[:5],
+        "focus_first": focus_first[:8],
+        "maybe_check": maybe_check[:8],
         "probably_skip": probably_skip[:5],
         "visible_text": cleaned_visible_text,
     }
@@ -865,10 +866,44 @@ def _triage_item_priority(item: dict):
 
     if re.search(r"\b(?:generic|unknown|check tag|inspect bottom|maybe|could be|looks like|hard to read|not visible)\b", text_blob):
         score -= 18
+    if re.search(r"\b(?:graphics card|gpu|video card|printer|scanner|console)\b", text_blob) and not re.search(r"\b(?:rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b", text_blob):
+        score -= 35
     if label in {"book", "books", "tv", "white console", "green plush", "stuffed animals"}:
         score -= 40
 
     return score
+
+
+def _triage_dedupe_key(item: dict):
+    value = _norm_title(item.get("search_phrase") or item.get("label") or "")
+    value = re.sub(r"^(watchlist match|sold history match|sold-history match)\s+", "", value)
+    value = re.sub(r"\b(?:box|boxed|board|card|game|games|party|popular|used|visible|readable|high|confidence)\b", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    aliases = {
+        "kids against maturity": "kids against maturity",
+        "exploding kittens": "exploding kittens",
+        "graphics gpu": "graphics card",
+        "graphics card gpu": "graphics card",
+        "pc video": "graphics card",
+        "pc video card": "graphics card",
+        "video card": "graphics card",
+    }
+    for needle, replacement in aliases.items():
+        if needle in value:
+            return replacement
+    return value or _norm_title(item.get("label") or "")
+
+
+def _dedupe_triage_items(items: list):
+    kept = []
+    seen = set()
+    for item in _sort_triage_items(items):
+        key = _triage_dedupe_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(item)
+    return kept
 
 
 def _sort_triage_items(items: list):
@@ -887,7 +922,7 @@ def _prioritize_triage_buckets(triage: dict):
     maybe_check = list(triage.get("maybe_check") or [])
     probably_skip = _sort_triage_items(triage.get("probably_skip") or [])
 
-    combined = _sort_triage_items(focus_first + maybe_check)
+    combined = _dedupe_triage_items(focus_first + maybe_check)
     triage["focus_first"] = combined[:5]
     triage["maybe_check"] = combined[5:10]
     triage["probably_skip"] = probably_skip[:5]

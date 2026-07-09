@@ -375,6 +375,7 @@
     if (/\b(readable|specific|exact|model|upc|sealed|new in box|box set)\b/.test(blob)) score += 30;
     if (/\b(zelda|nintendo|dungeons|dragons|d&d|dnd|tsr|pathfinder|warhammer|magic the gathering|mtg|pokemon|goosebumps|lord of the rings|hobbit|star wars|american girl|lego|funko)\b/.test(blob)) score += 22;
     if (/\b(generic|unknown|check tag|maybe|could be|looks like|hard to read|not visible)\b/.test(blob)) score -= 18;
+    if (/\b(graphics card|gpu|video card|printer|scanner|console)\b/.test(blob) && !/\b(rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b/.test(blob)) score -= 35;
     return score;
   }
   function sortTriageItems(items) {
@@ -391,6 +392,9 @@
       "computers tablets networking devices"
     ]);
     if (genericExact.has(q)) return false;
+    const hardwareNeedsModel = /\b(graphics card|gpu|video card|printer|scanner|console)\b/.test(q)
+      && !/\b(rtx|gtx|radeon|rx\s?\d|nvidia|amd|geforce|model|serial|upc|wii|playstation|xbox|switch|epson|canon|brother|hp)\b/.test(`${q} ${why}`);
+    if (hardwareNeedsModel) return false;
     const namedCategory = /\b(series|set|board game|card game|hardcover|paperback|book|books|novel|edition|trilogy|collection)\b/.test(q);
     const strongIpFormat = /\b(zelda|fallout|goosebumps|lord of the rings|hobbit|harry potter|pokemon|dungeons|dragons|d&d|tsr|pathfinder|warhammer|magic the gathering|mtg|star wars)\b/.test(q)
       && /\b(book|books|guide|manual|box set|set|collection|board game|card game|game|rpg|sourcebook)\b/.test(q);
