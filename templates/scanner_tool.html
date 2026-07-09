@@ -44,6 +44,9 @@
     background:var(--soft);
     margin-top:10px;
   }
+  .photo-picker-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .photo-picker-row .btn{ width:100%; justify-content:center; }
+  .hidden-file-input{ position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
   .triage-note{
     border:1px dashed var(--border);
     border-radius:14px;
@@ -75,6 +78,7 @@
     .fast-actions,
     .draft-grid,
     .quick-card-row,
+    .photo-picker-row,
     .focus-grid{ grid-template-columns:1fr; }
     .scan-field{ display:block; }
     .scan-field button{ width:100%; margin-top:8px; }
@@ -201,7 +205,12 @@
       Take a shelf photo and use it as a quick “what should I inspect first?” helper. This is for focus and sold-comp lookup only, not auto-creating items.
     </div>
     <label style="margin-top:10px;">Shelf photo</label>
-    <input id="shelfPhotoInput" type="file" accept="image/*" capture="environment">
+    <div class="photo-picker-row">
+      <button type="button" class="btn secondary" id="btnTakeShelfPhoto">Take Photo</button>
+      <button type="button" class="btn secondary" id="btnUploadShelfPhoto">Upload Photo</button>
+    </div>
+    <input id="shelfCameraInput" class="hidden-file-input" type="file" accept="image/*" capture="environment">
+    <input id="shelfUploadInput" class="hidden-file-input" type="file" accept="image/*">
     <img id="shelfPhotoPreview" class="shelf-preview" alt="Shelf photo preview">
     <div class="scanner-actions">
       <button type="button" class="btn" id="btnAnalyzeShelf">Analyze Shelf Photo</button>
@@ -319,8 +328,7 @@
     `;
   }
   async function analyzeShelfPhoto() {
-    const input = el("shelfPhotoInput");
-    const file = input?.files?.[0];
+    const file = selectedShelfPhotoFile;
     const out = el("shelfTriageOutput");
     if (!file) {
       alert("Choose or take a shelf photo first.");
@@ -341,9 +349,11 @@
         body: form,
         credentials: "same-origin",
       });
-      const data = await res.json().catch(() => ({}));
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch(e) {}
       if (!res.ok || !data.ok) {
-        out.textContent = data.error || "Shelf triage failed.";
+        out.textContent = data.error || `Shelf triage failed (${res.status}). ${raw || res.statusText || "No response body."}`;
         return;
       }
       renderShelfTriage(data.triage || {});
@@ -351,9 +361,21 @@
       out.textContent = "Shelf triage failed: " + (err?.message || err);
     }
   }
+  function handleShelfPhotoSelected(input) {
+    const file = input?.files?.[0];
+    const preview = el("shelfPhotoPreview");
+    if (!file || !preview) return;
+    selectedShelfPhotoFile = file;
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = "block";
+    el("shelfTriageOutput").style.display = "block";
+    el("shelfFocusGrid").style.display = "grid";
+    el("shelfTriageOutput").textContent = "Photo loaded. Tap Analyze Shelf Photo to get a quick focus-first list.";
+  }
 
   const LS_KEY = "ebayTrackerScannerDraft";
   let zxingReader = null;
+  let selectedShelfPhotoFile = null;
 
   function saveDraftState() {
     const data = {
@@ -509,6 +531,8 @@
     el("btnCalcDeal").addEventListener("click", calculateDeal);
     el("btnClearDraft").addEventListener("click", clearDraftState);
     el("btnAnalyzeShelf")?.addEventListener("click", analyzeShelfPhoto);
+    el("btnTakeShelfPhoto")?.addEventListener("click", () => el("shelfCameraInput")?.click());
+    el("btnUploadShelfPhoto")?.addEventListener("click", () => el("shelfUploadInput")?.click());
     el("btnUseBarcodeTitle").addEventListener("click", () => {
       const code = el("barcode").value.trim();
       if (!code) return;
@@ -530,16 +554,8 @@
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
     });
 
-    el("shelfPhotoInput")?.addEventListener("change", () => {
-      const file = el("shelfPhotoInput").files?.[0];
-      const preview = el("shelfPhotoPreview");
-      if (!file || !preview) return;
-      preview.src = URL.createObjectURL(file);
-      preview.style.display = "block";
-      el("shelfTriageOutput").style.display = "block";
-      el("shelfFocusGrid").style.display = "grid";
-      el("shelfTriageOutput").textContent = "Photo loaded. Tap Analyze Shelf Photo to get a quick focus-first list.";
-    });
+    el("shelfCameraInput")?.addEventListener("change", () => handleShelfPhotoSelected(el("shelfCameraInput")));
+    el("shelfUploadInput")?.addEventListener("change", () => handleShelfPhotoSelected(el("shelfUploadInput")));
 
     el("btnShelfExplain")?.addEventListener("click", () => {
       const out = el("shelfTriageOutput");
@@ -549,7 +565,9 @@
     });
 
     el("btnClearShelfPhoto")?.addEventListener("click", () => {
-      el("shelfPhotoInput").value = "";
+      selectedShelfPhotoFile = null;
+      el("shelfCameraInput").value = "";
+      el("shelfUploadInput").value = "";
       el("shelfPhotoPreview").removeAttribute("src");
       el("shelfPhotoPreview").style.display = "none";
       el("shelfTriageOutput").style.display = "none";

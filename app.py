@@ -312,6 +312,17 @@ def _vision_api_endpoint(base_url: str):
     return f"{base}/v1/chat/completions"
 
 
+def _post_vision_json(endpoint: str, body: dict, headers: dict, timeout: int = 45):
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def _loads_json_object(text: str):
     text = (text or "").strip()
     if text.startswith("```"):
@@ -1979,6 +1990,7 @@ def create_app():
 
         try:
             if using_local_vision:
+                use_response_format = (os.environ.get("VISION_RESPONSE_FORMAT", "json_object") or "").lower() != "off"
                 body = {
                     "model": model,
                     "messages": [
@@ -1994,14 +2006,26 @@ def create_app():
                     "max_tokens": max_tokens,
                     "temperature": 0.2,
                 }
-                if (os.environ.get("VISION_RESPONSE_FORMAT", "json_object") or "").lower() != "off":
+                if use_response_format:
                     body["response_format"] = {"type": "json_object"}
-                req = urllib.request.Request(
-                    local_endpoint,
-                    data=json.dumps(body).encode("utf-8"),
-                    headers=headers,
-                    method="POST",
-                )
+                try:
+                    payload = _post_vision_json(local_endpoint, body, headers)
+                except urllib.error.HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace")[:700]
+                    if not use_response_format:
+                        raise
+                    body.pop("response_format", None)
+                    try:
+                        payload = _post_vision_json(local_endpoint, body, headers)
+                    except urllib.error.HTTPError as retry_exc:
+                        retry_detail = retry_exc.read().decode("utf-8", errors="replace")[:700]
+                        return jsonify({
+                            "ok": False,
+                            "error": (
+                                f"Vision model failed with response_format ({exc.code}): {detail}\n\n"
+                                f"Retry without response_format also failed ({retry_exc.code}): {retry_detail}"
+                            ),
+                        }), 502
             else:
                 body = {
                     "model": model,
@@ -2014,14 +2038,7 @@ def create_app():
                     }],
                     "max_output_tokens": max_tokens,
                 }
-                req = urllib.request.Request(
-                    "https://api.openai.com/v1/responses",
-                    data=json.dumps(body).encode("utf-8"),
-                    headers=headers,
-                    method="POST",
-                )
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                payload = _post_vision_json("https://api.openai.com/v1/responses", body, headers)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:700]
             return jsonify({
