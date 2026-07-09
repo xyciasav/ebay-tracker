@@ -355,7 +355,7 @@ def _parse_shelf_triage_text_fallback(text: str):
         items = []
         for obj in re.findall(r"\{[^{}]*\}", segment, flags=re.DOTALL):
             entry = {}
-            for field in ("label", "why", "search_phrase", "confidence"):
+            for field in ("label", "why", "search_phrase", "confidence", "location", "evidence"):
                 match = re.search(rf'"{field}"\s*:\s*"([^"]*)"', obj, flags=re.DOTALL)
                 if match:
                     entry[field] = clean_jsonish(match.group(1))
@@ -364,7 +364,7 @@ def _parse_shelf_triage_text_fallback(text: str):
                 entry.setdefault("why", "")
                 entry.setdefault("confidence", "")
                 items.append(entry)
-        return items[:5]
+        return items[:8]
 
     def clean_line(value: str):
         value = re.sub(r"^\s*[*\-•]+\s*", "", value or "")
@@ -625,6 +625,8 @@ def _normalize_shelf_triage(parsed):
                 "why": reason[:260],
                 "search_phrase": search_phrase[:180],
                 "confidence": confidence[:40],
+                "location": str(entry.get("location") or entry.get("where") or "").strip()[:120],
+                "evidence": str(entry.get("evidence") or entry.get("visual_evidence") or entry.get("seen") or "").strip()[:180],
             }
             if is_vague_lookup(item) and "high" in item["confidence"].lower():
                 item["confidence"] = "medium"
@@ -1047,6 +1049,13 @@ def _text_has_watch_keyword(text_blob: str, keyword: str):
     return re.search(rf"\b{re.escape(keyword_norm)}\b", text_norm) is not None
 
 
+def _visible_text_match(visible_text: list, keyword: str):
+    for value in visible_text or []:
+        if _text_has_watch_keyword(str(value), keyword):
+            return str(value).strip()
+    return ""
+
+
 def _specific_watchlist_match_exists(scan_blob: str, keyword: str, promotions: list):
     keyword_norm = _norm_title(keyword)
     if keyword_norm == "nintendo":
@@ -1085,11 +1094,14 @@ def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
         if label.lower() in existing_blob or keyword.lower() in existing_blob:
             continue
         priority = (promo.get("priority") or "high").lower()
+        matched_text = _visible_text_match(visible_text, keyword)
         lead = {
             "label": f"Watchlist match: {label}",
             "why": (promo.get("notes") or f"Matched your scanner watchlist keyword: {keyword}.")[:260],
             "search_phrase": promo.get("search_phrase") or keyword,
             "confidence": "high" if promo.get("comp_link_allowed") and priority == "high" else "medium",
+            "location": "Detected text/OCR match; inspect the item in the photo.",
+            "evidence": f"Detected text included: {matched_text or keyword}.",
         }
         if priority in {"high", "medium"} and len(focus_first) < 5:
             focus_first.insert(0, lead)
@@ -2724,6 +2736,9 @@ def create_app():
             "dolls, plush, glass, porcelain, ceramic, crystal, brass/metal/wood pieces, vintage toys, sealed items, or "
             "anything with a possible maker's mark/tag/stamp even if you cannot identify the exact brand. For those, use "
             "a useful action phrase like 'inspect bottom for maker mark' or 'check tag/character ID' instead of a vague search. "
+            "For every returned item, include a short location like 'left side of table', 'center under blue strap', "
+            "or 'top right box', plus evidence explaining what you saw, such as readable text, logo, shape, tag, "
+            "model number, or visual clue. If the brand/title is uncertain, say that in evidence. "
             "Always surface visible gaming/fantasy/tabletop collector keywords as leads: Zelda/Legend of Zelda, Nintendo, "
             "Dungeons & Dragons/D&D/DND/AD&D, TSR, Pathfinder, Warhammer, Magic: The Gathering/MTG, Pokemon, Yu-Gi-Oh, "
             "Lord of the Rings/Hobbit, Star Wars, anime/manga, comics, and similar fandom/IP items. These can be valuable "
@@ -2735,9 +2750,9 @@ def create_app():
             "or 'small box', use medium or low and phrase it as an inspection lead. "
             "If something is low-value clutter, omit it entirely instead of putting it in probably_skip. "
             "Return only valid JSON with this exact shape: "
-            '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
-            '"maybe_check":[{"label":"item","why":"why maybe","search_phrase":"search phrase","confidence":"low|medium|high"}],'
-            '"probably_skip":[{"label":"item","why":"why likely low priority","search_phrase":"search phrase","confidence":"low|medium|high"}],'
+            '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","location":"where in photo","evidence":"what visible clue supports it","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
+            '"maybe_check":[{"label":"item","why":"why maybe","location":"where in photo","evidence":"what visible clue supports it","search_phrase":"search phrase","confidence":"low|medium|high"}],'
+            '"probably_skip":[{"label":"item","why":"why likely low priority","location":"where in photo","evidence":"what visible clue supports it","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"visible_text":["short visible text snippets"]}. '
             "Use focus_first for 'pick up first' items with readable brand/IP/model or strong resale category. "
             "Use maybe_check for 'inspect closer' items that could be valuable if marked, tagged, complete, vintage, or recognizable up close. "

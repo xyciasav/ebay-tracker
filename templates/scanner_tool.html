@@ -56,10 +56,6 @@
       radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 12%, transparent), transparent 40%),
       var(--soft);
   }
-  .focus-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-top:10px; }
-  .focus-card{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); }
-  .focus-card b{ display:block; margin-bottom:4px; }
-  .focus-card .small{ line-height:1.35; }
   .triage-results{ display:grid; gap:10px; margin-top:10px; }
   .triage-column{ border:1px solid var(--border2); border-radius:16px; padding:12px; background:color-mix(in srgb, var(--card) 78%, var(--soft)); }
   .triage-column h4{ margin:0 0 8px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -74,6 +70,7 @@
   .confidence-low{ color:#cbd5e1; border-color:color-mix(in srgb, #94a3b8 45%, var(--border)); background:rgba(148,163,184,.12); }
   .confidence-inspect{ color:#93c5fd; border-color:color-mix(in srgb, #60a5fa 45%, var(--border)); background:rgba(96,165,250,.14); }
   .triage-reason{ margin-top:4px; line-height:1.35; }
+  .triage-meta{ margin-top:5px; display:grid; gap:3px; color:var(--muted); }
   .triage-search{ margin-top:6px; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:999px; padding:5px 9px; background:rgba(15,23,42,.12); color:var(--muted); font-size:12px; }
   .triage-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .triage-actions .btn{ padding:8px 10px; font-size:13px; }
@@ -106,8 +103,7 @@
     .draft-grid,
     .quick-card-row,
     .watchlist-import-row,
-    .photo-picker-row,
-    .focus-grid{ grid-template-columns:1fr; }
+    .photo-picker-row{ grid-template-columns:1fr; }
     .scan-field{ display:block; }
     .scan-field button{ width:100%; margin-top:8px; }
     #barcodeVideo{ height:220px; }
@@ -242,26 +238,11 @@
     <img id="shelfPhotoPreview" class="shelf-preview" alt="Shelf photo preview">
     <div class="scanner-actions">
       <button type="button" class="btn" id="btnAnalyzeShelf">Analyze Shelf Photo</button>
-      <button type="button" class="btn secondary" id="btnShelfExplain">Show focus rules</button>
     </div>
     <div class="scanner-actions">
       <button type="button" class="btn secondary" id="btnClearShelfPhoto">Clear Photo</button>
     </div>
     <div id="shelfTriageOutput" class="triage-note" style="display:none; margin-top:10px;"></div>
-    <div class="focus-grid" id="shelfFocusGrid" style="display:none;">
-      <div class="focus-card">
-        <b>Focus first</b>
-        <div class="small">Visible brand names, sealed games/toys, electronics, new-with-tags clothing, recognizable characters/logos.</div>
-      </div>
-      <div class="focus-card">
-        <b>Comp quickly</b>
-        <div class="small">Use exact text from boxes/tags, model numbers, UPCs, franchise names, and bundle keywords.</div>
-      </div>
-      <div class="focus-card">
-        <b>Usually skip</b>
-        <div class="small">Generic/no-brand items, damaged packaging, incomplete sets, common books/DVDs unless sealed or niche.</div>
-      </div>
-    </div>
   </section>
 
   <details class="quick-details">
@@ -463,6 +444,12 @@
               <span class="confidence-chip ${triageChipClass(item)}">${triageChipLabel(item)}</span>
             </div>
             ${item.why ? `<div class="small triage-reason">${escapeHtml(item.why)}</div>` : ""}
+            ${(item.location || item.evidence) ? `
+              <div class="small triage-meta">
+                ${item.location ? `<div><b>Where:</b> ${escapeHtml(item.location)}</div>` : ""}
+                ${item.evidence ? `<div><b>Evidence:</b> ${escapeHtml(item.evidence)}</div>` : ""}
+              </div>
+            ` : ""}
             ${item.search_phrase ? `<div class="triage-search">Search: ${escapeHtml(item.search_phrase)}</div>` : ""}
             ${triageSearchButtons(item)}
           </div>
@@ -481,7 +468,6 @@
       renderTriageList("Skip for now", triage.probably_skip, {hideEmpty:true}),
     ].filter(Boolean).join("");
     out.style.display = "block";
-    el("shelfFocusGrid").style.display = "none";
     out.innerHTML = `
       <div><b>AI shelf triage</b></div>
       <div class="triage-summary">${escapeHtml(friendlyTriageSummary(triage.summary))}</div>
@@ -499,7 +485,6 @@
       return;
     }
     out.style.display = "block";
-    el("shelfFocusGrid").style.display = "none";
     out.textContent = "Analyzing shelf photo... looking for brands, titles, sealed items, UPCs, and anything worth comping first.";
 
     const form = new FormData();
@@ -533,7 +518,6 @@
     preview.src = URL.createObjectURL(file);
     preview.style.display = "block";
     el("shelfTriageOutput").style.display = "block";
-    el("shelfFocusGrid").style.display = "grid";
     el("shelfTriageOutput").textContent = "Photo loaded. Tap Analyze Shelf Photo to get a quick focus-first list.";
   }
 
@@ -736,13 +720,6 @@
     el("shelfCameraInput")?.addEventListener("change", () => handleShelfPhotoSelected(el("shelfCameraInput")));
     el("shelfUploadInput")?.addEventListener("change", () => handleShelfPhotoSelected(el("shelfUploadInput")));
 
-    el("btnShelfExplain")?.addEventListener("click", () => {
-      const out = el("shelfTriageOutput");
-      out.style.display = "block";
-      el("shelfFocusGrid").style.display = "grid";
-      out.innerHTML = "AI triage should return a fast focus list: <b>look at this first</b>, <b>maybe check if time</b>, and <b>probably skip</b>. It should identify brands/titles/logos/barcodes and suggest search phrases for eBay sold comps — no inventory creation.";
-    });
-
     el("btnClearShelfPhoto")?.addEventListener("click", () => {
       selectedShelfPhotoFile = null;
       el("shelfCameraInput").value = "";
@@ -750,7 +727,6 @@
       el("shelfPhotoPreview").removeAttribute("src");
       el("shelfPhotoPreview").style.display = "none";
       el("shelfTriageOutput").style.display = "none";
-      el("shelfFocusGrid").style.display = "none";
       el("shelfTriageOutput").textContent = "";
     });
 
