@@ -511,6 +511,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "refine selections", "final answer", "analysis", "image description",
         "constructing the json", "drafting the json", "building the json",
         "json", "return json", "final json", "response json", "item", "visible item",
+        "label", "search phrase", "confidence", "where", "evidence",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -675,12 +676,36 @@ def _normalize_shelf_triage(parsed):
                 break
         return items
 
+    def is_prompt_leak_text(value: str):
+        normalized = _norm_title(value)
+        if not normalized:
+            return True
+        leak_exact = {
+            "watchlist", "sold history", "search phrase", "confidence", "label",
+            "where", "evidence", "focus first", "inspect closer", "probably skip",
+        }
+        if normalized in leak_exact:
+            return True
+        if normalized.startswith(("watchlist ", "sold history ", "search phrase ")):
+            return True
+        return False
+
     visible_text = parsed.get("visible_text", []) if isinstance(parsed, dict) else []
     if isinstance(visible_text, str):
         visible_text = [visible_text]
     if not isinstance(visible_text, list):
         visible_text = []
-    cleaned_visible_text = [str(x).strip()[:80] for x in visible_text[:12] if str(x).strip()]
+    cleaned_visible_text = []
+    seen_visible_text = set()
+    for value in visible_text:
+        cleaned = str(value).strip()[:80]
+        normalized = _norm_title(cleaned)
+        if not cleaned or is_prompt_leak_text(cleaned) or normalized in seen_visible_text:
+            continue
+        seen_visible_text.add(normalized)
+        cleaned_visible_text.append(cleaned)
+        if len(cleaned_visible_text) >= 12:
+            break
 
     focus_first = normalize_list("focus_first")
     maybe_check = normalize_list("maybe_check")
@@ -1109,6 +1134,32 @@ def _specific_watchlist_match_exists(scan_blob: str, keyword: str, promotions: l
     return False
 
 
+def _watchlist_match_has_context(keyword: str, matched_text: str, item_context: str):
+    keyword_norm = _norm_title(keyword)
+    matched_norm = _norm_title(matched_text)
+    context_norm = _norm_title(item_context)
+    combined = f"{matched_norm} {context_norm}"
+
+    if keyword_norm == "jackson" and "michael jackson" in matched_norm:
+        return False
+
+    music_brands = {"fender", "gibson", "jackson", "squier", "ibanez", "epiphone"}
+    if keyword_norm in music_brands:
+        return bool(re.search(
+            r"\b(?:guitar|strat|stratocaster|telecaster|bass|amp|amplifier|pedal|pickup|headstock|instrument)\b",
+            combined,
+        ))
+
+    decor_brands = {"rae dunn", "pyrex", "fiestaware", "fiesta", "lenox", "lladro"}
+    if keyword_norm in decor_brands:
+        return bool(re.search(
+            r"\b(?:mug|vase|bowl|plate|dish|canister|planter|pottery|ceramic|figurine|decor|decorative|marked|stamp|label)\b",
+            combined,
+        ))
+
+    return True
+
+
 def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
     if not promotions:
         return triage
@@ -1121,6 +1172,12 @@ def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
         visible_text +
         [str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip] +
         [str(item.get("why", "")) for item in focus_first + maybe_check + probably_skip]
+    )
+    item_context = " ".join(
+        [str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip] +
+        [str(item.get("why", "")) for item in focus_first + maybe_check + probably_skip] +
+        [str(item.get("evidence", "")) for item in focus_first + maybe_check + probably_skip] +
+        [str(item.get("search_phrase", "")) for item in focus_first + maybe_check + probably_skip]
     )
     existing_blob = " ".join(str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip).lower()
 
@@ -1136,6 +1193,8 @@ def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
             continue
         priority = (promo.get("priority") or "high").lower()
         matched_text = _visible_text_match(visible_text, keyword)
+        if not matched_text or not _watchlist_match_has_context(keyword, matched_text, item_context):
+            continue
         lead = {
             "label": f"Watchlist match: {label}",
             "why": (promo.get("notes") or f"Matched your scanner watchlist keyword: {keyword}.")[:260],
@@ -2780,6 +2839,8 @@ def create_app():
             "For every returned item, include a short location like 'left side of table', 'center under blue strap', "
             "or 'top right box', plus evidence explaining what you saw, such as readable text, logo, shape, tag, "
             "model number, or visual clue. If the brand/title is uncertain, say that in evidence. "
+            "The visible_text array must contain only text physically visible in the image. Never include prompt words "
+            "or internal labels such as Watchlist, Sold History, Label, Search phrase, Confidence, Where, or Evidence. "
             "Always surface visible gaming/fantasy/tabletop collector keywords as leads: Zelda/Legend of Zelda, Nintendo, "
             "Dungeons & Dragons/D&D/DND/AD&D, TSR, Pathfinder, Warhammer, Magic: The Gathering/MTG, Pokemon, Yu-Gi-Oh, "
             "Lord of the Rings/Hobbit, Star Wars, anime/manga, comics, and similar fandom/IP items. These can be valuable "
