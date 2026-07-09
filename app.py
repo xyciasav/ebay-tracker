@@ -465,7 +465,7 @@ def _clean_triage_label(value: str):
     value = re.sub(r"\s+", " ", str(value or "")).strip()
     value = value.replace("“", '"').replace("”", '"').strip()
     value = value.replace('"', "")
-    value = re.sub(r"\s*\((?:top|middle|bottom|left|right|second|third|fourth|shelf|bookshelf)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s*\((?:top|middle|bottom|left|right|second|third|fourth|shelf|bookshelf|check|inspect|too blurry|needs?)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip(" .")
     value = value.strip('"')
     return value
@@ -485,6 +485,7 @@ def _clean_triage_search_phrase(value: str, fallback: str):
     value = _clean_triage_label(value or fallback)
     if ". " in value:
         value = value.split(". ", 1)[0]
+    value = re.sub(r"\s*\((?:check|inspect|too blurry|needs?)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip(" .")
     return value or _clean_triage_label(fallback)
 
@@ -503,6 +504,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     non_item_labels = (
         "image analysis", "photo analysis", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
+        "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "left shelf", "right shelf", "middle shelf", "top shelf",
         "bottom shelf", "bookshelf", "bookcase", "tv stand", "entertainment center",
         "first shelf", "second shelf", "third shelf", "fourth shelf",
@@ -684,6 +686,15 @@ _HISTORY_KEYWORD_STOPWORDS = {
     "box", "boxed", "sealed", "complete", "vintage", "rare", "edition", "ed",
     "series", "collection", "official", "authentic", "toy", "toys", "figure",
     "figures", "shirt", "tshirt", "t", "men", "women", "kids", "size",
+    "sun", "sand", "straw", "hat", "corded", "rope", "blue", "base", "beach",
+    "black", "white", "red", "green", "yellow", "brown", "gray", "grey", "beige",
+    "large", "small", "medium", "long", "short", "left", "right", "top", "bottom",
+}
+
+_HIGH_SIGNAL_SINGLE_HISTORY_TERMS = {
+    "zelda", "nintendo", "pokemon", "yugioh", "warhammer", "pathfinder", "tsr",
+    "dnd", "mtg", "lego", "funko", "barbie", "goosebumps", "tolkien", "hobbit",
+    "lotr", "starwars", "star", "manga", "anime",
 }
 
 
@@ -715,7 +726,8 @@ def _scanner_history_keyword_promotions(limit: int = 250):
         if len(title_tokens) >= 2:
             candidates.add(" ".join(title_tokens[:5]))
         for token in title_tokens:
-            candidates.add(token)
+            if token in _HIGH_SIGNAL_SINGLE_HISTORY_TERMS:
+                candidates.add(token)
         for size in (2, 3):
             for i in range(0, max(0, len(title_tokens) - size + 1)):
                 candidates.add(" ".join(title_tokens[i:i + size]))
@@ -725,11 +737,14 @@ def _scanner_history_keyword_promotions(limit: int = 250):
             if len(category_tokens) >= 2:
                 candidates.add(" ".join(category_tokens[:4]))
             for token in category_tokens:
-                candidates.add(token)
+                if token in _HIGH_SIGNAL_SINGLE_HISTORY_TERMS:
+                    candidates.add(token)
 
         for candidate in candidates:
             candidate = candidate.strip()
-            if len(candidate) < 4:
+            if " " not in candidate and candidate not in _HIGH_SIGNAL_SINGLE_HISTORY_TERMS:
+                continue
+            if len(candidate) < 4 and candidate not in {"dnd", "d&d", "tsr", "mtg"}:
                 continue
             if candidate in _HISTORY_KEYWORD_STOPWORDS:
                 continue
@@ -776,9 +791,9 @@ def _apply_history_triage_boosts(triage: dict, promotions: list):
         if label.lower() in existing_blob or keyword in existing_blob:
             continue
         lead = {
-            "label": f"Sold before: {label}",
-            "why": "Matches your confirmed sold history; worth checking against your past results.",
-            "search_phrase": promo["search_phrase"],
+            "label": f"Sold-history match: {keyword.title()}",
+            "why": f"You have sold related items before, for example: {label}.",
+            "search_phrase": keyword if len(keyword.split()) >= 2 else promo["search_phrase"],
             "confidence": "medium",
         }
         if len(focus_first) < 5:
