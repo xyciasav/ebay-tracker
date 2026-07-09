@@ -468,6 +468,8 @@ def _clean_triage_label(value: str):
     value = value.replace('"', "")
     value = re.sub(r"\s*\((?:top|middle|bottom|left|right|second|third|fourth|shelf|bookshelf|check|inspect|too blurry|needs?)[^)]*\)\s*", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"\s*/\s*hob$", " / Hobbit", value, flags=re.IGNORECASE)
+    if value.count("(") > value.count(")"):
+        value = value.replace("(", "").strip()
     value = re.sub(r"\s+", " ", value).strip(" .")
     value = value.strip('"')
     return value
@@ -511,7 +513,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "refine selections", "final answer", "analysis", "image description",
         "constructing the json", "drafting the json", "building the json",
         "json", "return json", "final json", "response json", "item", "visible item",
-        "label", "search phrase", "confidence", "where", "evidence",
+        "label", "search phrase", "confidence", "where", "evidence", "why", "location",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -946,12 +948,18 @@ def _triage_item_priority(item: dict):
         score -= 60
     if label in {"book", "books", "tv", "white console", "green plush", "stuffed animals"}:
         score -= 40
+    if label in {"why", "location", "label", "search phrase", "confidence", "where", "evidence"}:
+        score -= 200
 
     return score
 
 
 def _triage_dedupe_key(item: dict):
-    value = _norm_title(item.get("search_phrase") or item.get("label") or "")
+    value = _norm_title(" ".join([
+        str(item.get("search_phrase") or item.get("label") or ""),
+        str(item.get("evidence") or ""),
+        str(item.get("why") or ""),
+    ]))
     value = re.sub(r"^(watchlist match|sold history match|sold-history match)\s+", "", value)
     value = re.sub(r"\b(?:box|boxed|board|card|game|games|party|popular|used|visible|readable|high|confidence)\b", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
@@ -963,6 +971,14 @@ def _triage_dedupe_key(item: dict):
         "pc video": "graphics card",
         "pc video card": "graphics card",
         "video card": "graphics card",
+        "fender": "electric guitar" if re.search(r"\b(?:strat|stratocaster|guitar|telecaster)\b", value) else "fender",
+        "squier": "electric guitar" if re.search(r"\b(?:strat|stratocaster|guitar|telecaster)\b", value) else "squier",
+        "gibson": "electric guitar" if "guitar" in value else "gibson",
+        "black stratocaster style guitar": "electric guitar",
+        "black stratocaster guitar": "electric guitar",
+        "black electric guitar": "electric guitar",
+        "stratocaster guitar": "electric guitar",
+        "electric guitar": "electric guitar",
         "nintendo": "zelda" if "zelda" in value else "nintendo",
         "legend zelda": "zelda",
         "zelda": "zelda",
