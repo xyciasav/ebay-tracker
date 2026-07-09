@@ -370,7 +370,9 @@
     const genericExact = new Set([
       "book", "books", "loose books", "tv", "television", "white console",
       "green plush", "stuffed animals", "vinyl records",
-      "computers tablets networking devices", "nintendo"
+      "computers tablets networking devices", "nintendo", "center speaker",
+      "large center speaker", "the large center speaker", "headphones",
+      "speaker", "speakers", "tangled wires"
     ]);
     if (genericExact.has(q)) return false;
     const hardwareNeedsModel = /\b(graphics card|gpu|video card|printer|scanner|console)\b/.test(q)
@@ -401,7 +403,7 @@
       "left stack", "top box", "second box", "top", "used graphics card",
       "graphics card/pc hardware", "pc hardware", "computer hardware stack",
       "black computer hardware stack", "top right boxes", "bottom shelf red spines",
-      "red spines", "spines"
+      "red spines", "spines", "checking against constraints", "no image analysis labels"
     ];
     if (vagueTerms.some((term) => q === term || q.includes(term))) return false;
     return q.length >= 4;

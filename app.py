@@ -514,6 +514,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "constructing the json", "drafting the json", "building the json",
         "json", "return json", "final json", "response json", "item", "visible item",
         "label", "search phrase", "confidence", "where", "evidence", "why", "location",
+        "checking against constraints", "constraints", "no image analysis labels",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -545,7 +546,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     hard_skip_terms = (
         "paper", "papers", "clutter", "junk mail", "envelope", "stationery",
         "ruler", "rulers", "marker", "pen", "glue", "loose cable", "cables",
-        "cords", "accessories", "trash bin", "trash can", "garbage can",
+        "cords", "tangled wires", "wires", "accessories", "trash bin", "trash can", "garbage can",
         "generic books", "generic book", "random books", "loose books",
         "books/dvds", "books / dvds", "middle shelves", "shelf contents",
         "top right boxes", "bottom shelf red spines", "red spines",
@@ -948,6 +949,8 @@ def _triage_item_priority(item: dict):
         score -= 60
     if label in {"book", "books", "tv", "white console", "green plush", "stuffed animals"}:
         score -= 40
+    if re.fullmatch(r"(?:the\s+)?(?:large\s+)?center speaker", label) or label in {"headphones", "speaker", "speakers"}:
+        score -= 45
     if label in {"why", "location", "label", "search phrase", "confidence", "where", "evidence"}:
         score -= 200
 
@@ -979,6 +982,9 @@ def _triage_dedupe_key(item: dict):
         "black electric guitar": "electric guitar",
         "stratocaster guitar": "electric guitar",
         "electric guitar": "electric guitar",
+        "the large center speaker": "center speaker",
+        "large center speaker": "center speaker",
+        "center speaker": "center speaker",
         "nintendo": "zelda" if "zelda" in value else "nintendo",
         "legend zelda": "zelda",
         "zelda": "zelda",
