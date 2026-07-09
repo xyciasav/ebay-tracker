@@ -358,11 +358,39 @@
   function triageChipLabel(item) {
     return isSpecificLookup(item) ? "Lookup" : confidenceLabel(item.confidence);
   }
+  function triageSortScore(item) {
+    const label = String(item.label || "").toLowerCase();
+    const why = String(item.why || "").toLowerCase();
+    const q = String(item.search_phrase || "").toLowerCase();
+    const confidence = String(item.confidence || "").toLowerCase();
+    const blob = `${label} ${why} ${q}`;
+    let score = 0;
+    if (label.startsWith("watchlist match:")) score += 140;
+    if (label.startsWith("sold-history match:")) score += 95;
+    if (isSpecificLookup(item)) score += 120;
+    else if (confidence.includes("high")) score += 110;
+    else if (confidence.includes("medium")) score += 60;
+    else if (confidence.includes("low")) score += 20;
+    else score += 35;
+    if (/\b(readable|specific|exact|model|upc|sealed|new in box|box set)\b/.test(blob)) score += 30;
+    if (/\b(zelda|nintendo|dungeons|dragons|d&d|dnd|tsr|pathfinder|warhammer|magic the gathering|mtg|pokemon|goosebumps|lord of the rings|hobbit|star wars|american girl|lego|funko)\b/.test(blob)) score += 22;
+    if (/\b(generic|unknown|check tag|maybe|could be|looks like|hard to read|not visible)\b/.test(blob)) score -= 18;
+    return score;
+  }
+  function sortTriageItems(items) {
+    return [...(Array.isArray(items) ? items : [])].sort((a, b) => triageSortScore(b) - triageSortScore(a));
+  }
   function isSpecificLookup(item) {
     const confidence = String(item.confidence || "").toLowerCase();
     const why = String(item.why || "").toLowerCase();
     const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
     const words = q.split(/\s+/).filter(Boolean);
+    const genericExact = new Set([
+      "book", "books", "loose books", "tv", "television", "white console",
+      "green plush", "stuffed animals", "vinyl records",
+      "computers tablets networking devices"
+    ]);
+    if (genericExact.has(q)) return false;
     const namedCategory = /\b(series|set|board game|card game|hardcover|paperback|book|books|novel|edition|trilogy|collection)\b/.test(q);
     const strongIpFormat = /\b(zelda|fallout|goosebumps|lord of the rings|hobbit|harry potter|pokemon|dungeons|dragons|d&d|tsr|pathfinder|warhammer|magic the gathering|mtg|star wars)\b/.test(q)
       && /\b(book|books|guide|manual|box set|set|collection|board game|card game|game|rpg|sourcebook)\b/.test(q);
@@ -417,7 +445,7 @@
     `;
   }
   function renderTriageList(title, items, options={}) {
-    const list = Array.isArray(items) ? items : [];
+    const list = sortTriageItems(items);
     if (!list.length && options.hideEmpty) return "";
     const body = list.length
       ? list.map((item) => `

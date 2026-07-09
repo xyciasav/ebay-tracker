@@ -506,6 +506,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     non_item_labels = (
         "image analysis", "photo analysis", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
+        "constructing the json", "json", "return json", "final json", "response json",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
         "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
         "bottom stack", "left side", "right side", "middle section", "top section",
@@ -538,11 +539,13 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "paper", "papers", "clutter", "junk mail", "envelope", "stationery",
         "ruler", "rulers", "marker", "pen", "glue", "loose cable", "cables",
         "cords", "accessories", "trash bin", "trash can", "garbage can",
-        "generic books", "generic book", "random books",
+        "generic books", "generic book", "random books", "loose books",
         "books/dvds", "books / dvds", "middle shelves", "shelf contents",
         "top right boxes", "bottom shelf red spines", "red spines",
     )
     if any(term in text_value for term in hard_skip_terms):
+        return True
+    if label_value in {"book", "books", "loose books"} or search_value in {"book", "books", "loose books"}:
         return True
 
     generic_terms = (
@@ -758,13 +761,9 @@ def _scanner_history_keyword_promotions(limit: int = 250):
             for i in range(0, max(0, len(title_tokens) - size + 1)):
                 candidates.add(" ".join(title_tokens[i:i + size]))
 
-        for category_value in (item.category, item.sub_category, item.ebay_category):
-            category_tokens = _history_tokens(category_value or "")
-            if len(category_tokens) >= 2:
-                candidates.add(" ".join(category_tokens[:4]))
-            for token in category_tokens:
-                if token in _HIGH_SIGNAL_SINGLE_HISTORY_TERMS:
-                    candidates.add(token)
+        # Do not promote broad eBay categories like "Computers Tablets Networking
+        # Devices" or "Vinyl Records". Those produced noisy scanner leads because
+        # a category can match a shelf without identifying a pick-up-worthy item.
 
         for candidate in candidates:
             candidate = candidate.strip()
@@ -832,6 +831,65 @@ def _apply_history_triage_boosts(triage: dict, promotions: list):
 
     triage["focus_first"] = focus_first[:5]
     triage["maybe_check"] = maybe_check[:5]
+    triage["probably_skip"] = probably_skip[:5]
+    return triage
+
+
+def _triage_item_priority(item: dict):
+    label = str(item.get("label") or "").lower()
+    why = str(item.get("why") or "").lower()
+    search_phrase = str(item.get("search_phrase") or "").lower()
+    confidence = str(item.get("confidence") or "").lower()
+    text_blob = f"{label} {why} {search_phrase}"
+
+    score = 0
+    if label.startswith("watchlist match:"):
+        score += 140
+    if label.startswith("sold-history match:"):
+        score += 95
+    if "high" in confidence:
+        score += 110
+    elif "medium" in confidence:
+        score += 60
+    elif "low" in confidence:
+        score += 20
+    else:
+        score += 35
+
+    if re.search(r"\b(?:readable|specific|exact|model|upc|sealed|new in box|nib|boxed set|box set)\b", text_blob):
+        score += 30
+    if re.search(r"\b(?:zelda|nintendo|dungeons|dragons|d&d|dnd|ad&d|tsr|pathfinder|warhammer|magic the gathering|mtg|pokemon|yugioh|goosebumps|lord of the rings|hobbit|star wars|american girl|lego|funko)\b", text_blob):
+        score += 22
+    if re.search(r"\b(?:figure|figurine|statue|doll|plush|ceramic|porcelain|glass|crystal|maker mark|tag|label)\b", text_blob):
+        score += 12
+
+    if re.search(r"\b(?:generic|unknown|check tag|inspect bottom|maybe|could be|looks like|hard to read|not visible)\b", text_blob):
+        score -= 18
+    if label in {"book", "books", "tv", "white console", "green plush", "stuffed animals"}:
+        score -= 40
+
+    return score
+
+
+def _sort_triage_items(items: list):
+    return sorted(
+        list(items or []),
+        key=lambda item: (
+            _triage_item_priority(item),
+            str(item.get("label") or "").lower(),
+        ),
+        reverse=True,
+    )
+
+
+def _prioritize_triage_buckets(triage: dict):
+    focus_first = list(triage.get("focus_first") or [])
+    maybe_check = list(triage.get("maybe_check") or [])
+    probably_skip = _sort_triage_items(triage.get("probably_skip") or [])
+
+    combined = _sort_triage_items(focus_first + maybe_check)
+    triage["focus_first"] = combined[:5]
+    triage["maybe_check"] = combined[5:10]
     triage["probably_skip"] = probably_skip[:5]
     return triage
 
@@ -2560,12 +2618,10 @@ def create_app():
         history_promotions = _scanner_history_keyword_promotions()
         watchlist_hint = ""
         if watchlist_promotions:
-            watchlist_terms = ", ".join(p["keyword"] for p in watchlist_promotions[:60])
             watchlist_hint = (
-                "The user also has a scanner watchlist of brands/franchises/categories they want surfaced. "
-                f"Watchlist keywords include: {watchlist_terms}. "
-                "If any watchlist keyword is visible or strongly implied, include it as a real product lead; "
-                "do not use vague location labels for it. "
+                "The app will compare your response against the user's scanner watchlist after you answer, "
+                "so do not invent brands, franchises, or categories from a hidden list. Only name watchlist-like "
+                "items when they are visibly readable or visually identifiable in the photo. "
             )
         history_hint = ""
         if history_promotions:
@@ -2714,6 +2770,7 @@ def create_app():
 
         triage = _apply_watchlist_triage_boosts(triage, watchlist_promotions)
         triage = _apply_history_triage_boosts(triage, history_promotions)
+        triage = _prioritize_triage_buckets(triage)
         return jsonify({"ok": True, "triage": triage})
 
 
