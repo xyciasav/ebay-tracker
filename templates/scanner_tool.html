@@ -48,24 +48,38 @@
   .photo-picker-row .btn{ width:100%; justify-content:center; }
   .hidden-file-input{ position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
   .triage-note{
-    border:1px dashed var(--border);
-    border-radius:14px;
-    padding:12px;
+    border:1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+    border-radius:18px;
+    padding:14px;
     color:var(--muted);
-    background:var(--soft);
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 12%, transparent), transparent 40%),
+      var(--soft);
   }
   .focus-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-top:10px; }
   .focus-card{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); }
   .focus-card b{ display:block; margin-bottom:4px; }
   .focus-card .small{ line-height:1.35; }
   .triage-results{ display:grid; gap:10px; margin-top:10px; }
-  .triage-column{ border:1px solid var(--border2); border-radius:16px; padding:12px; background:var(--soft); }
-  .triage-column h4{ margin:0 0 8px; }
+  .triage-column{ border:1px solid var(--border2); border-radius:16px; padding:12px; background:color-mix(in srgb, var(--card) 78%, var(--soft)); }
+  .triage-column h4{ margin:0 0 8px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .triage-count{ color:var(--muted); font-size:12px; font-weight:700; }
   .triage-item{ border-top:1px solid var(--border); padding-top:10px; margin-top:10px; }
   .triage-item:first-of-type{ border-top:0; padding-top:0; margin-top:0; }
-  .triage-item-title{ font-weight:800; }
+  .triage-item-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .triage-item-title{ font-weight:900; font-size:17px; line-height:1.15; color:var(--text); }
+  .confidence-chip{ flex:0 0 auto; border:1px solid var(--border2); border-radius:999px; padding:3px 8px; font-size:12px; font-weight:800; text-transform:capitalize; }
+  .confidence-high{ color:#34d399; border-color:color-mix(in srgb, #34d399 45%, var(--border)); background:rgba(52,211,153,.12); }
+  .confidence-medium{ color:#fbbf24; border-color:color-mix(in srgb, #fbbf24 45%, var(--border)); background:rgba(251,191,36,.12); }
+  .confidence-low{ color:var(--muted); background:rgba(148,163,184,.12); }
+  .triage-reason{ margin-top:4px; line-height:1.35; }
+  .triage-search{ margin-top:6px; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:999px; padding:5px 9px; background:rgba(15,23,42,.12); color:var(--muted); font-size:12px; }
   .triage-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .triage-actions .btn{ padding:8px 10px; font-size:13px; }
+  .triage-summary{ color:var(--text); font-weight:800; margin-top:2px; }
+  .detected-text{ margin-top:10px; border:1px solid var(--border); border-radius:12px; padding:8px 10px; background:rgba(15,23,42,.1); }
+  .detected-text summary{ cursor:pointer; font-weight:800; color:var(--muted); }
+  .detected-text .small{ margin-top:6px; line-height:1.35; }
   .quick-details{ border:1px solid var(--border2); border-radius:14px; background:var(--card); overflow:hidden; }
   .quick-details summary{ cursor:pointer; padding:14px; font-weight:800; list-style:none; }
   .quick-details summary::-webkit-details-marker{ display:none; }
@@ -276,6 +290,26 @@
   function ebayActiveUrl(q) {
     return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`;
   }
+  function friendlyTriageSummary(summary) {
+    const s = String(summary || "").trim();
+    if (!s || /returned notes instead of strict json/i.test(s) || /could not bucket/i.test(s)) {
+      return "Here’s what looks worth checking first.";
+    }
+    return s;
+  }
+  function confidenceClass(value) {
+    const v = String(value || "").toLowerCase();
+    if (v.includes("high")) return "confidence-high";
+    if (v.includes("medium")) return "confidence-medium";
+    return "confidence-low";
+  }
+  function confidenceLabel(value) {
+    const v = String(value || "").trim().toLowerCase();
+    if (v.includes("high")) return "High";
+    if (v.includes("medium")) return "Medium";
+    if (v.includes("low")) return "Low";
+    return "Check";
+  }
   function escapeHtml(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -291,6 +325,7 @@
       <div class="triage-actions">
         <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="${escapeHtml(ebaySoldUrl(q))}">Sold comps</a>
         <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="${escapeHtml(ebayActiveUrl(q))}">Active</a>
+        <button type="button" class="btn secondary btnCopyTriageSearch" data-search="${escapeHtml(q)}">Copy search</button>
       </div>
     `;
   }
@@ -299,26 +334,28 @@
     const body = list.length
       ? list.map((item) => `
           <div class="triage-item">
-            <div class="triage-item-title">${escapeHtml(item.label || "Visible item")}</div>
-            ${item.confidence ? `<div class="small">Confidence: ${escapeHtml(item.confidence)}</div>` : ""}
-            ${item.why ? `<div class="small">${escapeHtml(item.why)}</div>` : ""}
-            ${item.search_phrase ? `<div class="small">Search: ${escapeHtml(item.search_phrase)}</div>` : ""}
+            <div class="triage-item-head">
+              <div class="triage-item-title">${escapeHtml(item.label || "Visible item")}</div>
+              <span class="confidence-chip ${confidenceClass(item.confidence)}">${confidenceLabel(item.confidence)}</span>
+            </div>
+            ${item.why ? `<div class="small triage-reason">${escapeHtml(item.why)}</div>` : ""}
+            ${item.search_phrase ? `<div class="triage-search">Search: ${escapeHtml(item.search_phrase)}</div>` : ""}
             ${triageSearchButtons(item)}
           </div>
         `).join("")
       : `<div class="small">Nothing obvious in this bucket.</div>`;
-    return `<div class="triage-column"><h4>${escapeHtml(title)}</h4>${body}</div>`;
+    return `<div class="triage-column"><h4><span>${escapeHtml(title)}</span><span class="triage-count">${list.length}</span></h4>${body}</div>`;
   }
   function renderShelfTriage(triage) {
     const out = el("shelfTriageOutput");
     const visibleText = Array.isArray(triage.visible_text) && triage.visible_text.length
-      ? `<div class="small" style="margin-top:10px;">Visible text: ${triage.visible_text.map(escapeHtml).join(", ")}</div>`
+      ? `<details class="detected-text"><summary>Detected text (${triage.visible_text.length})</summary><div class="small">${triage.visible_text.map(escapeHtml).join(", ")}</div></details>`
       : "";
     out.style.display = "block";
     el("shelfFocusGrid").style.display = "none";
     out.innerHTML = `
       <div><b>AI shelf triage</b></div>
-      <div class="small">${escapeHtml(triage.summary || "Here is what looks worth checking first.")}</div>
+      <div class="triage-summary">${escapeHtml(friendlyTriageSummary(triage.summary))}</div>
       ${visibleText}
       <div class="triage-results">
         ${renderTriageList("Focus first", triage.focus_first)}
@@ -552,6 +589,21 @@
       if (!q) { alert("Add a barcode or search phrase first."); return; }
       saveDraftState();
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    document.addEventListener("click", async (event) => {
+      const btn = event.target.closest?.(".btnCopyTriageSearch");
+      if (!btn) return;
+      const q = btn.getAttribute("data-search") || "";
+      if (!q) return;
+      try {
+        await navigator.clipboard.writeText(q);
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = old; }, 900);
+      } catch(e) {
+        prompt("Copy search phrase:", q);
+      }
     });
 
     el("shelfCameraInput")?.addEventListener("change", () => handleShelfPhotoSelected(el("shelfCameraInput")));
