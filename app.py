@@ -543,8 +543,11 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "marking", "signature", "maker", "stamp", "label", "tag", "bottom",
         "resin", "brass", "metal", "wooden", "handmade", "hand painted",
         "collectible", "character", "licensed", "anime", "manga", "comic",
-        "star wars", "harry potter", "bluey", "disney", "nintendo", "sony",
-        "vizio", "lego", "pokemon", "funko", "barbie", "fisher-price",
+        "star wars", "harry potter", "lord of the rings", "lotr", "hobbit",
+        "zelda", "legend of zelda", "dungeons & dragons", "dungeons and dragons",
+        "d&d", "dnd", "ad&d", "tsr", "pathfinder", "warhammer", "magic the gathering",
+        "mtg", "pokemon", "yugioh", "dragon ball", "marvel", "dc comics", "bluey",
+        "disney", "nintendo", "sony", "vizio", "lego", "funko", "barbie", "fisher-price",
     )
     if any(term in text_value for term in generic_terms) and not any(clue in text_value for clue in value_clues):
         return True
@@ -613,14 +616,183 @@ def _normalize_shelf_triage(parsed):
         visible_text = [visible_text]
     if not isinstance(visible_text, list):
         visible_text = []
+    cleaned_visible_text = [str(x).strip()[:80] for x in visible_text[:12] if str(x).strip()]
+
+    focus_first = normalize_list("focus_first")
+    maybe_check = normalize_list("maybe_check")
+    probably_skip = normalize_list("probably_skip")
+
+    def add_visible_keyword_lead(label, search_phrase, why):
+        existing = " ".join(
+            item["label"].lower()
+            for item in (focus_first + maybe_check + probably_skip)
+            if item.get("label")
+        )
+        if label.lower() in existing or search_phrase.lower() in existing:
+            return
+        if len(focus_first) >= 5:
+            maybe_check.append({
+                "label": label,
+                "why": why,
+                "search_phrase": search_phrase,
+                "confidence": "medium",
+            })
+        else:
+            focus_first.append({
+                "label": label,
+                "why": why,
+                "search_phrase": search_phrase,
+                "confidence": "medium",
+            })
+
+    visible_blob = " ".join(cleaned_visible_text).lower()
+    keyword_promotions = [
+        ("Legend of Zelda", "Legend of Zelda", "Visible Zelda/Nintendo keyword; always worth checking."),
+        ("Dungeons & Dragons books", "Dungeons & Dragons books", "Visible D&D/tabletop RPG books; check edition and publisher."),
+        ("AD&D / TSR books", "AD&D TSR books", "Visible AD&D/TSR keyword; older RPG books can be valuable."),
+        ("Pathfinder RPG books", "Pathfinder RPG books", "Visible tabletop RPG keyword; check edition/sourcebook."),
+        ("Warhammer books/games", "Warhammer books", "Visible Warhammer keyword; check edition and condition."),
+        ("Magic: The Gathering cards", "Magic The Gathering cards", "Visible MTG/card keyword; check sets and condition."),
+        ("Lord of the Rings / Hobbit books", "Lord of the Rings Hobbit books", "Visible Tolkien keyword; boxed sets and older editions can be valuable."),
+    ]
+    for label, search_phrase, why in keyword_promotions:
+        label_key = label.lower()
+        if (
+            ("zelda" in visible_blob and "zelda" in label_key)
+            or (("dungeons" in visible_blob or "d&d" in visible_blob or "dnd" in visible_blob) and "dungeons" in label_key)
+            or (("ad&d" in visible_blob or "tsr" in visible_blob) and "tsr" in label_key)
+            or ("pathfinder" in visible_blob and "pathfinder" in label_key)
+            or ("warhammer" in visible_blob and "warhammer" in label_key)
+            or (("magic" in visible_blob or "mtg" in visible_blob) and "magic" in label_key)
+            or (("lord of the rings" in visible_blob or "hobbit" in visible_blob or "lotr" in visible_blob) and "lord of the rings" in label_key)
+        ):
+            add_visible_keyword_lead(label, search_phrase, why)
 
     return {
         "summary": str(parsed.get("summary") or "Shelf triage complete.").strip()[:300] if isinstance(parsed, dict) else "Shelf triage complete.",
-        "focus_first": normalize_list("focus_first"),
-        "maybe_check": normalize_list("maybe_check"),
-        "probably_skip": normalize_list("probably_skip"),
-        "visible_text": [str(x).strip()[:80] for x in visible_text[:12] if str(x).strip()],
+        "focus_first": focus_first[:5],
+        "maybe_check": maybe_check[:5],
+        "probably_skip": probably_skip[:5],
+        "visible_text": cleaned_visible_text,
     }
+
+
+_HISTORY_KEYWORD_STOPWORDS = {
+    "the", "and", "for", "with", "from", "into", "that", "this", "your", "you",
+    "new", "used", "lot", "bundle", "set", "book", "books", "game", "games",
+    "card", "cards", "dvd", "bluray", "blu", "ray", "disc", "movie", "movies",
+    "box", "boxed", "sealed", "complete", "vintage", "rare", "edition", "ed",
+    "series", "collection", "official", "authentic", "toy", "toys", "figure",
+    "figures", "shirt", "tshirt", "t", "men", "women", "kids", "size",
+}
+
+
+def _history_tokens(value: str):
+    normalized = re.sub(r"[^a-z0-9&]+", " ", (value or "").lower())
+    return [token for token in normalized.split() if len(token) >= 3 and token not in _HISTORY_KEYWORD_STOPWORDS]
+
+
+def _scanner_history_keyword_promotions(limit: int = 250):
+    try:
+        rows = (
+            Item.query
+            .filter(Item.sold.is_(True), Item.sold_confirmed.is_(True), Item.canceled.is_(False))
+            .order_by(Item.date_sold.desc().nullslast(), Item.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+    except Exception:
+        return []
+
+    promotions = {}
+    for item in rows:
+        title = _clean_triage_label(item.item_name or "")
+        if not title:
+            continue
+        title_tokens = _history_tokens(title)
+        candidates = set()
+
+        if len(title_tokens) >= 2:
+            candidates.add(" ".join(title_tokens[:5]))
+        for token in title_tokens:
+            candidates.add(token)
+        for size in (2, 3):
+            for i in range(0, max(0, len(title_tokens) - size + 1)):
+                candidates.add(" ".join(title_tokens[i:i + size]))
+
+        for category_value in (item.category, item.sub_category, item.ebay_category):
+            category_tokens = _history_tokens(category_value or "")
+            if len(category_tokens) >= 2:
+                candidates.add(" ".join(category_tokens[:4]))
+            for token in category_tokens:
+                candidates.add(token)
+
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if len(candidate) < 4:
+                continue
+            if candidate in _HISTORY_KEYWORD_STOPWORDS:
+                continue
+            record = promotions.setdefault(candidate, {
+                "keyword": candidate,
+                "label": title[:80],
+                "search_phrase": title[:120],
+                "count": 0,
+                "profit": 0.0,
+            })
+            record["count"] += 1
+            record["profit"] += float(item.profit or 0.0)
+
+    sorted_promotions = sorted(
+        promotions.values(),
+        key=lambda r: (r["count"], r["profit"], len(r["keyword"])),
+        reverse=True,
+    )
+    return sorted_promotions[:80]
+
+
+def _apply_history_triage_boosts(triage: dict, promotions: list):
+    if not promotions:
+        return triage
+
+    focus_first = list(triage.get("focus_first") or [])
+    maybe_check = list(triage.get("maybe_check") or [])
+    probably_skip = list(triage.get("probably_skip") or [])
+    visible_text = list(triage.get("visible_text") or [])
+    scan_blob = " ".join(
+        visible_text +
+        [str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip] +
+        [str(item.get("why", "")) for item in focus_first + maybe_check + probably_skip]
+    ).lower()
+    existing_blob = " ".join(str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip).lower()
+
+    for promo in promotions:
+        keyword = promo["keyword"].lower()
+        if len(keyword) < 4 and keyword not in {"dnd", "d&d", "tsr", "mtg"}:
+            continue
+        if keyword not in scan_blob:
+            continue
+        label = promo["label"]
+        if label.lower() in existing_blob or keyword in existing_blob:
+            continue
+        lead = {
+            "label": f"Sold before: {label}",
+            "why": "Matches your confirmed sold history; worth checking against your past results.",
+            "search_phrase": promo["search_phrase"],
+            "confidence": "medium",
+        }
+        if len(focus_first) < 5:
+            focus_first.append(lead)
+        elif len(maybe_check) < 5:
+            maybe_check.append(lead)
+        else:
+            break
+        existing_blob += " " + label.lower() + " " + keyword
+
+    triage["focus_first"] = focus_first[:5]
+    triage["maybe_check"] = maybe_check[:5]
+    triage["probably_skip"] = probably_skip[:5]
+    return triage
 
 
 def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
@@ -2129,6 +2301,15 @@ def create_app():
                 "error": "Set LM_STUDIO_URL/VISION_API_BASE for local vision, or set OPENAI_API_KEY for hosted vision.",
             }), 400
 
+        history_promotions = _scanner_history_keyword_promotions()
+        history_hint = ""
+        if history_promotions:
+            history_terms = ", ".join(p["keyword"] for p in history_promotions[:35])
+            history_hint = (
+                "Also prioritize visible terms related to the user's confirmed sold history. "
+                f"Sold-history keywords include: {history_terms}. "
+            )
+
         model = (
             os.environ.get("VISION_MODEL")
             or os.environ.get("OPENAI_VISION_MODEL")
@@ -2158,6 +2339,11 @@ def create_app():
             "dolls, plush, glass, porcelain, ceramic, crystal, brass/metal/wood pieces, vintage toys, sealed items, or "
             "anything with a possible maker's mark/tag/stamp even if you cannot identify the exact brand. For those, use "
             "a useful action phrase like 'inspect bottom for maker mark' or 'check tag/character ID' instead of a vague search. "
+            "Always surface visible gaming/fantasy/tabletop collector keywords as leads: Zelda/Legend of Zelda, Nintendo, "
+            "Dungeons & Dragons/D&D/DND/AD&D, TSR, Pathfinder, Warhammer, Magic: The Gathering/MTG, Pokemon, Yu-Gi-Oh, "
+            "Lord of the Rings/Hobbit, Star Wars, anime/manga, comics, and similar fandom/IP items. These can be valuable "
+            "even when they are books/manuals/cards rather than toys. "
+            f"{history_hint}"
             "Use confidence 'high' only when you can read a specific product title, brand+model, UPC, or exact named item suitable "
             "for an eBay sold search. For partial/generic descriptions like 'Star Wars box', 'green plush toy', 'white ceramic toilet', "
             "or 'small box', use medium or low and phrase it as an inspection lead. "
@@ -2260,6 +2446,7 @@ def create_app():
                     "visible_text": [],
                 })
 
+        triage = _apply_history_triage_boosts(triage, history_promotions)
         return jsonify({"ok": True, "triage": triage})
 
 
