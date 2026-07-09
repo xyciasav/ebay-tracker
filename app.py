@@ -328,6 +328,81 @@ def _loads_json_object(text: str):
         raise
 
 
+def _parse_shelf_triage_text_fallback(text: str):
+    def clean_line(value: str):
+        value = re.sub(r"^\s*[*\-•]+\s*", "", value or "")
+        value = re.sub(r"^\s*\d+[.)]\s*", "", value)
+        value = value.replace("**", "").replace("__", "").replace("`", "")
+        return re.sub(r"\s+", " ", value).strip()
+
+    def entry_from_line(line: str):
+        line = clean_line(line)
+        if not line or len(line) < 3:
+            return None
+        lowered = line.lower()
+        if lowered.startswith(("focus first", "maybe check", "probably skip", "summary", "visible text")):
+            return None
+
+        label, reason = line, ""
+        if ":" in line:
+            label, reason = line.split(":", 1)
+        elif " - " in line:
+            label, reason = line.split(" - ", 1)
+
+        label = clean_line(label)
+        reason = clean_line(reason)
+        if not label:
+            return None
+        search_phrase = re.sub(r"\([^)]*\)", "", label).strip() or label
+        return {
+            "label": label[:140],
+            "why": reason[:260],
+            "search_phrase": search_phrase[:180],
+            "confidence": "",
+        }
+
+    buckets = {
+        "focus_first": [],
+        "maybe_check": [],
+        "probably_skip": [],
+    }
+    current = None
+    for raw_line in (text or "").splitlines():
+        line = clean_line(raw_line)
+        lowered = line.lower().strip(":")
+        if not line:
+            continue
+        if "focus first" in lowered:
+            current = "focus_first"
+            continue
+        if "maybe check" in lowered:
+            current = "maybe_check"
+            continue
+        if "probably skip" in lowered:
+            current = "probably_skip"
+            continue
+        if current and len(buckets[current]) < 5 and re.match(r"^\s*(?:[*\-•]|\d+[.)])", raw_line):
+            entry = entry_from_line(raw_line)
+            if entry:
+                buckets[current].append(entry)
+
+    if not any(buckets.values()):
+        return None
+
+    visible_text = []
+    for quoted in re.findall(r'"([^"]{2,60})"', text or ""):
+        if quoted.lower() not in {"summary", "focus_first", "maybe_check", "probably_skip", "visible_text"}:
+            visible_text.append(quoted)
+
+    return {
+        "summary": "The vision model returned notes instead of strict JSON, so I pulled out the priority buckets from its response.",
+        "focus_first": buckets["focus_first"],
+        "maybe_check": buckets["maybe_check"],
+        "probably_skip": buckets["probably_skip"],
+        "visible_text": visible_text[:12],
+    }
+
+
 def _normalize_shelf_triage(parsed):
     def normalize_list(key):
         value = parsed.get(key) if isinstance(parsed, dict) else []
@@ -1879,17 +1954,23 @@ def create_app():
             or os.environ.get("OPENAI_VISION_MODEL")
             or ("local-vision" if using_local_vision else "gpt-5.5")
         ).strip()
+        max_tokens = parse_int(os.environ.get("VISION_MAX_TOKENS")) or 1600
+        json_system_prompt = (
+            "You are a JSON API for a reseller shelf-photo triage tool. "
+            "Return only one valid JSON object. Do not include markdown, chain-of-thought, analysis, or explanations outside JSON."
+        )
         prompt = (
+            "/no_think\n"
             "You are helping a fast-moving eBay reseller triage a shelf photo in a store or storage room. "
             "The user only needs quick focus guidance, not inventory creation. Identify visible items, brands, "
             "titles, model numbers, UPCs, logos, sealed packaging, recognizable characters, and anything that "
             "looks worth checking eBay sold comps for first. Be honest about uncertainty and do not invent text "
-            "you cannot read. Return JSON only with this shape: "
+            "you cannot read. Return only valid JSON with this exact shape: "
             '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
             '"maybe_check":[{"label":"item","why":"why maybe","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"probably_skip":[{"label":"item","why":"why likely low priority","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"visible_text":["short visible text snippets"]}. '
-            "Limit each list to 5 items. Keep each reason short."
+            "Limit each list to 5 items. Keep each reason short. If unsure, use confidence low."
         )
 
         headers = {"Content-Type": "application/json"}
@@ -1900,16 +1981,21 @@ def create_app():
             if using_local_vision:
                 body = {
                     "model": model,
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": image_data_url}},
-                        ],
-                    }],
-                    "max_tokens": 900,
+                    "messages": [
+                        {"role": "system", "content": json_system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": image_data_url}},
+                            ],
+                        },
+                    ],
+                    "max_tokens": max_tokens,
                     "temperature": 0.2,
                 }
+                if (os.environ.get("VISION_RESPONSE_FORMAT", "json_object") or "").lower() != "off":
+                    body["response_format"] = {"type": "json_object"}
                 req = urllib.request.Request(
                     local_endpoint,
                     data=json.dumps(body).encode("utf-8"),
@@ -1922,11 +2008,11 @@ def create_app():
                     "input": [{
                         "role": "user",
                         "content": [
-                            {"type": "input_text", "text": prompt},
+                            {"type": "input_text", "text": f"{json_system_prompt}\n\n{prompt}"},
                             {"type": "input_image", "image_url": image_data_url, "detail": "low"},
                         ],
                     }],
-                    "max_output_tokens": 900,
+                    "max_output_tokens": max_tokens,
                 }
                 req = urllib.request.Request(
                     "https://api.openai.com/v1/responses",
@@ -1955,13 +2041,17 @@ def create_app():
         try:
             triage = _normalize_shelf_triage(_loads_json_object(text))
         except Exception:
-            triage = _normalize_shelf_triage({
-                "summary": text,
-                "focus_first": [],
-                "maybe_check": [],
-                "probably_skip": [],
-                "visible_text": [],
-            })
+            fallback = _parse_shelf_triage_text_fallback(text)
+            if fallback:
+                triage = _normalize_shelf_triage(fallback)
+            else:
+                triage = _normalize_shelf_triage({
+                    "summary": "The vision model returned text I could not bucket. Try again, or use a model that supports JSON/structured output.",
+                    "focus_first": [],
+                    "maybe_check": [],
+                    "probably_skip": [],
+                    "visible_text": [],
+                })
 
         return jsonify({"ok": True, "triage": triage})
 
