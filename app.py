@@ -461,6 +461,8 @@ def _parse_shelf_triage_text_fallback(text: str):
 
 
 def _is_noise_shelf_triage_item(item: dict, bucket: str):
+    label_value = str(item.get("label") or "").strip().lower()
+    search_value = str(item.get("search_phrase") or "").strip().lower()
     text_value = " ".join([
         str(item.get("label") or ""),
         str(item.get("why") or ""),
@@ -469,28 +471,48 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     if not text_value.strip():
         return True
 
+    non_item_labels = (
+        "image analysis", "photo analysis", "shelf photo", "shelf triage",
+        "left shelf", "right shelf", "middle shelf", "top shelf",
+        "bottom shelf", "bookshelf", "bookcase", "tv stand", "entertainment center",
+        "first shelf", "second shelf", "third shelf", "fourth shelf",
+        "shelf 1", "shelf 2", "shelf 3", "shelf 4",
+        "second shelf down", "third shelf down", "left shelf (bookshelf)",
+    )
+    if label_value in non_item_labels or search_value in non_item_labels:
+        return True
+    if re.fullmatch(r"(?:left|right|middle|top|bottom|first|second|third|fourth)\s+shelf(?:\s+down)?(?:\s*\([^)]*\))?", label_value):
+        return True
+    if re.fullmatch(r"(?:left|right|middle|top|bottom|first|second|third|fourth)\s+shelf(?:\s+down)?", search_value):
+        return True
+
     hard_skip_terms = (
         "paper", "papers", "clutter", "junk mail", "envelope", "stationery",
         "ruler", "rulers", "marker", "pen", "glue", "loose cable", "cables",
         "cords", "accessories", "generic books", "generic book", "random books",
-        "books/dvds", "books / dvds", "middle shelves", "bottom shelf",
+        "books/dvds", "books / dvds", "middle shelves", "shelf contents",
     )
     if any(term in text_value for term in hard_skip_terms):
         return True
 
     generic_terms = (
         "generic toy", "toy on", "yellow toy", "grey toy", "gray toy",
-        "small toy", "toys", "unknown toy", "misc toy", "unbranded toy",
+        "small toy", "toys", "misc toy", "unbranded toy",
         "generic box", "unknown box", "disney box", "nickelodeon box",
     )
     value_clues = (
         "brand", "branded", "model", "upc", "sealed", "new in box", "nib",
         "vintage", "rare", "figure", "figurine", "action figure", "statue",
         "doll", "plush", "glass", "porcelain", "ceramic", "crystal", "marked",
+        "marking", "signature", "maker", "stamp", "label", "tag", "bottom",
+        "resin", "brass", "metal", "wooden", "handmade", "hand painted",
+        "collectible", "character", "licensed", "anime", "manga", "comic",
         "star wars", "harry potter", "bluey", "disney", "nintendo", "sony",
         "vizio", "lego", "pokemon", "funko", "barbie", "fisher-price",
     )
     if any(term in text_value for term in generic_terms) and not any(clue in text_value for clue in value_clues):
+        return True
+    if any(term in text_value for term in generic_terms) and any(negative in text_value for negative in ("no brand", "no character", "not visible", "can't identify", "cannot identify")):
         return True
 
     if bucket == "probably_skip" and any(term in text_value for term in ("generic", "low value", "clutter", "paper")):
@@ -508,7 +530,7 @@ def _normalize_shelf_triage(parsed):
             value = []
 
         items = []
-        for entry in value[:5]:
+        for entry in value:
             if isinstance(entry, str):
                 entry = {"label": entry}
             if not isinstance(entry, dict):
@@ -525,6 +547,8 @@ def _normalize_shelf_triage(parsed):
             if _is_noise_shelf_triage_item(item, key):
                 continue
             items.append(item)
+            if len(items) >= 5:
+                break
         return items
 
     visible_text = parsed.get("visible_text", []) if isinstance(parsed, dict) else []
@@ -2061,19 +2085,27 @@ def create_app():
         prompt = (
             "/no_think\n"
             "You are helping a fast-moving eBay reseller triage a shelf photo in a store or storage room. "
-            "The user only needs quick focus guidance, not inventory creation. Identify visible items, brands, "
-            "titles, model numbers, UPCs, logos, sealed packaging, recognizable characters, and anything that "
-            "looks worth checking eBay sold comps for first. Be honest about uncertainty and do not invent text "
+            "The user is walking up to a table or shelf and wants to know what to physically pick up first. "
+            "This is not inventory creation and not a full image description. Identify visible items, brands, "
+            "titles, model numbers, UPCs, logos, sealed packaging, recognizable characters, and hidden-value categories "
+            "that are worth checking for labels, markings, or sold comps. Be honest about uncertainty and do not invent text "
             "you cannot read. Do not waste slots on obvious trash, papers, clutter, generic cables, rulers, glue, "
             "stationery, loose books, or vague searches like 'gray toy', 'toys', 'generic books', or 'box on shelf'. "
-            "Only include unbranded/generic-looking items if there is a useful value clue: figurine, action figure, "
-            "doll, plush, glass, porcelain, ceramic, crystal, vintage, sealed, marked, or a visible brand/IP/model. "
+            "Do not return layout/meta entries such as 'Image Analysis', 'Left Shelf', 'Second shelf down', "
+            "'Bookshelf', 'TV stand', or any shelf/location name. Every label must be a physical product/object "
+            "the reseller can pick up, inspect, or comp. "
+            "Balance readable labels with treasure-hunt categories: include unknown figurines, statues, action figures, "
+            "dolls, plush, glass, porcelain, ceramic, crystal, brass/metal/wood pieces, vintage toys, sealed items, or "
+            "anything with a possible maker's mark/tag/stamp even if you cannot identify the exact brand. For those, use "
+            "a useful action phrase like 'inspect bottom for maker mark' or 'check tag/character ID' instead of a vague search. "
             "If something is low-value clutter, omit it entirely instead of putting it in probably_skip. "
             "Return only valid JSON with this exact shape: "
             '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'
             '"maybe_check":[{"label":"item","why":"why maybe","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"probably_skip":[{"label":"item","why":"why likely low priority","search_phrase":"search phrase","confidence":"low|medium|high"}],'
             '"visible_text":["short visible text snippets"]}. '
+            "Use focus_first for 'pick up first' items with readable brand/IP/model or strong resale category. "
+            "Use maybe_check for 'inspect closer' items that could be valuable if marked, tagged, complete, vintage, or recognizable up close. "
             "Limit focus_first to the best 5 real leads. Limit maybe_check to real maybe leads. Use probably_skip only "
             "for reseller-relevant warnings, not ordinary clutter; it may be empty. Keep each reason short. If unsure, use confidence low."
         )
