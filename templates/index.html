@@ -110,6 +110,14 @@
         <label>Bulk COG</label>
         <input name="cog" inputmode="decimal" placeholder="Set COG">
       </div>
+      <div>
+        <label>Bulk Action</label>
+        <select name="bulk_action">
+          <option value="">No status change</option>
+          <option value="sold_review">Mark Sold Review</option>
+          <option value="shipped">Mark Shipped</option>
+        </select>
+      </div>
       <div style="display:flex; gap:8px; align-items:center; min-height:42px;">
         <label style="display:flex; gap:8px; align-items:center; margin:0; cursor:pointer;">
           <input type="checkbox" id="bulkSelectAll" style="width:auto;">

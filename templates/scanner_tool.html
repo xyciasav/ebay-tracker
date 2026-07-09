@@ -34,6 +34,27 @@
   }
   .hint-list{ margin:8px 0 0 0; padding-left:18px; color:var(--muted); }
   .hint-list li{ margin:4px 0; }
+  .shelf-preview{
+    display:none;
+    width:100%;
+    max-height:320px;
+    object-fit:contain;
+    border:1px solid var(--border2);
+    border-radius:14px;
+    background:var(--soft);
+    margin-top:10px;
+  }
+  .triage-note{
+    border:1px dashed var(--border);
+    border-radius:14px;
+    padding:12px;
+    color:var(--muted);
+    background:var(--soft);
+  }
+  .focus-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-top:10px; }
+  .focus-card{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); }
+  .focus-card b{ display:block; margin-bottom:4px; }
+  .focus-card .small{ line-height:1.35; }
   .quick-details{ border:1px solid var(--border2); border-radius:14px; background:var(--card); overflow:hidden; }
   .quick-details summary{ cursor:pointer; padding:14px; font-weight:800; list-style:none; }
   .quick-details summary::-webkit-details-marker{ display:none; }
@@ -45,7 +66,8 @@
     .scanner-actions,
     .fast-actions,
     .draft-grid,
-    .quick-card-row{ grid-template-columns:1fr; }
+    .quick-card-row,
+    .focus-grid{ grid-template-columns:1fr; }
     .scan-field{ display:block; }
     .scan-field button{ width:100%; margin-top:8px; }
     #barcodeVideo{ height:220px; }
@@ -164,6 +186,35 @@
   </details>
 
   </form>
+
+  <section class="card mobile-panel">
+    <h3 style="margin-top:0;">Shelf Photo Triage</h3>
+    <div class="small">
+      Take a shelf photo and use it as a quick “what should I inspect first?” helper. This is for focus and sold-comp lookup only, not auto-creating items.
+    </div>
+    <label style="margin-top:10px;">Shelf photo</label>
+    <input id="shelfPhotoInput" type="file" accept="image/*" capture="environment">
+    <img id="shelfPhotoPreview" class="shelf-preview" alt="Shelf photo preview">
+    <div class="scanner-actions">
+      <button type="button" class="btn secondary" id="btnShelfExplain">Show focus rules</button>
+      <button type="button" class="btn secondary" id="btnClearShelfPhoto">Clear Photo</button>
+    </div>
+    <div id="shelfTriageOutput" class="triage-note" style="display:none; margin-top:10px;"></div>
+    <div class="focus-grid" id="shelfFocusGrid" style="display:none;">
+      <div class="focus-card">
+        <b>Focus first</b>
+        <div class="small">Visible brand names, sealed games/toys, electronics, new-with-tags clothing, recognizable characters/logos.</div>
+      </div>
+      <div class="focus-card">
+        <b>Comp quickly</b>
+        <div class="small">Use exact text from boxes/tags, model numbers, UPCs, franchise names, and bundle keywords.</div>
+      </div>
+      <div class="focus-card">
+        <b>Usually skip</b>
+        <div class="small">Generic/no-brand items, damaged packaging, incomplete sets, common books/DVDs unless sealed or niche.</div>
+      </div>
+    </div>
+  </section>
 
   <section class="card mobile-panel">
     <h3 style="margin-top:0;">How this avoids duplicates</h3>
@@ -381,6 +432,33 @@
       if (!q) { alert("Add a barcode or search phrase first."); return; }
       saveDraftState();
       window.open(ebayActiveUrl(q), "_blank", "noopener,noreferrer");
+    });
+
+    el("shelfPhotoInput")?.addEventListener("change", () => {
+      const file = el("shelfPhotoInput").files?.[0];
+      const preview = el("shelfPhotoPreview");
+      if (!file || !preview) return;
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = "block";
+      el("shelfTriageOutput").style.display = "block";
+      el("shelfFocusGrid").style.display = "grid";
+      el("shelfTriageOutput").textContent = "Photo loaded. With AI vision wired in, this would return a short priority list: the items most worth pulling off the shelf and comping first.";
+    });
+
+    el("btnShelfExplain")?.addEventListener("click", () => {
+      const out = el("shelfTriageOutput");
+      out.style.display = "block";
+      el("shelfFocusGrid").style.display = "grid";
+      out.innerHTML = "AI triage should return a fast focus list: <b>look at this first</b>, <b>maybe check if time</b>, and <b>probably skip</b>. It should identify brands/titles/logos/barcodes and suggest search phrases for eBay sold comps — no inventory creation.";
+    });
+
+    el("btnClearShelfPhoto")?.addEventListener("click", () => {
+      el("shelfPhotoInput").value = "";
+      el("shelfPhotoPreview").removeAttribute("src");
+      el("shelfPhotoPreview").style.display = "none";
+      el("shelfTriageOutput").style.display = "none";
+      el("shelfFocusGrid").style.display = "none";
+      el("shelfTriageOutput").textContent = "";
     });
 
     el("quickDraftForm").addEventListener("submit", (event) => {

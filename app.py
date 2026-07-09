@@ -2019,6 +2019,7 @@ def create_app():
         return_to = _safe_return_url(request.form.get("return_to")) or url_for("index")
         source_location_raw = request.form.get("source_location", "")
         cog_raw = request.form.get("cog", "")
+        bulk_action = request.form.get("bulk_action", "").strip()
         source_location = source_location_raw.strip()
         cog_text = cog_raw.strip()
 
@@ -2035,8 +2036,9 @@ def create_app():
 
         update_location = source_location != ""
         update_cog = cog_text != ""
-        if not update_location and not update_cog:
-            flash("Enter a location, a COG, or both before applying a bulk edit.", "warning")
+        update_status = bulk_action in {"sold_review", "shipped"}
+        if not update_location and not update_cog and not update_status:
+            flash("Enter a location/COG or choose a bulk action before applying.", "warning")
             return redirect(return_to)
 
         cog_value = None
@@ -2056,6 +2058,32 @@ def create_app():
             if update_cog and item.cog != cog_value:
                 item.cog = cog_value
                 changed = True
+            if bulk_action == "sold_review":
+                if not item.sold or item.sold_confirmed or item.pending_shipping or item.canceled:
+                    item.sold = True
+                    item.sold_confirmed = False
+                    item.pending_shipping = False
+                    item.canceled = False
+                    if not item.date_sold:
+                        item.date_sold = datetime.utcnow().date()
+                    changed = True
+            elif bulk_action == "shipped":
+                if (
+                    not item.sold or
+                    not item.sold_confirmed or
+                    item.pending_shipping or
+                    item.canceled or
+                    not item.date_shipped
+                ):
+                    item.sold = True
+                    item.sold_confirmed = True
+                    item.pending_shipping = False
+                    item.canceled = False
+                    if not item.date_sold:
+                        item.date_sold = datetime.utcnow().date()
+                    if not item.date_shipped:
+                        item.date_shipped = datetime.utcnow().date()
+                    changed = True
             if changed:
                 updated += 1
 
