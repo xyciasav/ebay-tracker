@@ -473,6 +473,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
 
     non_item_labels = (
         "image analysis", "photo analysis", "shelf photo", "shelf triage",
+        "refine selections", "final answer", "analysis", "image description",
         "left shelf", "right shelf", "middle shelf", "top shelf",
         "bottom shelf", "bookshelf", "bookcase", "tv stand", "entertainment center",
         "first shelf", "second shelf", "third shelf", "fourth shelf",
@@ -485,11 +486,16 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         return True
     if re.fullmatch(r"(?:left|right|middle|top|bottom|first|second|third|fourth)\s+shelf(?:\s+down)?", search_value):
         return True
+    if re.search(r"\b(?:box|toy|item|object|thing)\s+on\s+(?:tv stand|shelf|table|stand)\b", label_value):
+        return True
+    if re.search(r"\b(?:box|toy|item|object|thing)\s+on\s+(?:tv stand|shelf|table|stand)\b", search_value):
+        return True
 
     hard_skip_terms = (
         "paper", "papers", "clutter", "junk mail", "envelope", "stationery",
         "ruler", "rulers", "marker", "pen", "glue", "loose cable", "cables",
-        "cords", "accessories", "generic books", "generic book", "random books",
+        "cords", "accessories", "trash bin", "trash can", "garbage can",
+        "generic books", "generic book", "random books",
         "books/dvds", "books / dvds", "middle shelves", "shelf contents",
     )
     if any(term in text_value for term in hard_skip_terms):
@@ -498,7 +504,8 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
     generic_terms = (
         "generic toy", "toy on", "yellow toy", "grey toy", "gray toy",
         "small toy", "toys", "misc toy", "unbranded toy",
-        "generic box", "unknown box", "disney box", "nickelodeon box",
+        "generic box", "unknown box", "small box on", "box on tv stand",
+        "disney box", "nickelodeon box",
     )
     value_clues = (
         "brand", "branded", "model", "upc", "sealed", "new in box", "nib",
@@ -522,6 +529,19 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
 
 
 def _normalize_shelf_triage(parsed):
+    def is_vague_lookup(item):
+        text_value = " ".join([
+            str(item.get("label") or ""),
+            str(item.get("search_phrase") or ""),
+        ]).lower()
+        vague_terms = (
+            "toy", "toys", "box", "small box", "glass jar", "green plush",
+            "plush toy", "white ceramic", "ceramic toilet", "star wars box",
+            "books", "book lot", "unknown", "inspect", "check tag",
+            "maker mark", "bottom left", "tv stand",
+        )
+        return any(term in text_value for term in vague_terms)
+
     def normalize_list(key):
         value = parsed.get(key) if isinstance(parsed, dict) else []
         if isinstance(value, str):
@@ -544,6 +564,8 @@ def _normalize_shelf_triage(parsed):
                 "search_phrase": str(entry.get("search_phrase") or entry.get("query") or label).strip()[:180],
                 "confidence": str(entry.get("confidence") or "").strip()[:40],
             }
+            if is_vague_lookup(item) and "high" in item["confidence"].lower():
+                item["confidence"] = "medium"
             if _is_noise_shelf_triage_item(item, key):
                 continue
             items.append(item)
@@ -2098,6 +2120,9 @@ def create_app():
             "dolls, plush, glass, porcelain, ceramic, crystal, brass/metal/wood pieces, vintage toys, sealed items, or "
             "anything with a possible maker's mark/tag/stamp even if you cannot identify the exact brand. For those, use "
             "a useful action phrase like 'inspect bottom for maker mark' or 'check tag/character ID' instead of a vague search. "
+            "Use confidence 'high' only when you can read a specific product title, brand+model, UPC, or exact named item suitable "
+            "for an eBay sold search. For partial/generic descriptions like 'Star Wars box', 'green plush toy', 'white ceramic toilet', "
+            "or 'small box', use medium or low and phrase it as an inspection lead. "
             "If something is low-value clutter, omit it entirely instead of putting it in probably_skip. "
             "Return only valid JSON with this exact shape: "
             '{"summary":"short practical summary","focus_first":[{"label":"item","why":"why it may be worth checking","search_phrase":"best eBay sold search phrase","confidence":"low|medium|high"}],'

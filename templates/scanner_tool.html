@@ -71,11 +71,13 @@
   .confidence-chip{ flex:0 0 auto; border:1px solid var(--border2); border-radius:999px; padding:3px 8px; font-size:12px; font-weight:800; text-transform:capitalize; }
   .confidence-high{ color:#34d399; border-color:color-mix(in srgb, #34d399 45%, var(--border)); background:rgba(52,211,153,.12); }
   .confidence-medium{ color:#fbbf24; border-color:color-mix(in srgb, #fbbf24 45%, var(--border)); background:rgba(251,191,36,.12); }
-  .confidence-low{ color:var(--muted); background:rgba(148,163,184,.12); }
+  .confidence-low{ color:#cbd5e1; border-color:color-mix(in srgb, #94a3b8 45%, var(--border)); background:rgba(148,163,184,.12); }
+  .confidence-inspect{ color:#93c5fd; border-color:color-mix(in srgb, #60a5fa 45%, var(--border)); background:rgba(96,165,250,.14); }
   .triage-reason{ margin-top:4px; line-height:1.35; }
   .triage-search{ margin-top:6px; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:999px; padding:5px 9px; background:rgba(15,23,42,.12); color:var(--muted); font-size:12px; }
   .triage-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .triage-actions .btn{ padding:8px 10px; font-size:13px; }
+  .triage-actions .disabled-hint{ color:var(--muted); font-size:12px; align-self:center; }
   .triage-summary{ color:var(--text); font-weight:800; margin-top:2px; }
   .detected-text{ margin-top:10px; border:1px solid var(--border); border-radius:12px; padding:8px 10px; background:rgba(15,23,42,.1); }
   .detected-text summary{ cursor:pointer; font-weight:800; color:var(--muted); }
@@ -301,14 +303,27 @@
     const v = String(value || "").toLowerCase();
     if (v.includes("high")) return "confidence-high";
     if (v.includes("medium")) return "confidence-medium";
-    return "confidence-low";
+    if (v.includes("low")) return "confidence-low";
+    return "confidence-inspect";
   }
   function confidenceLabel(value) {
     const v = String(value || "").trim().toLowerCase();
-    if (v.includes("high")) return "High";
+    if (v.includes("high")) return "Lookup";
     if (v.includes("medium")) return "Medium";
-    if (v.includes("low")) return "Low";
-    return "Check";
+    if (v.includes("low")) return "Inspect";
+    return "Inspect";
+  }
+  function isSpecificLookup(item) {
+    const confidence = String(item.confidence || "").toLowerCase();
+    const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
+    if (!confidence.includes("high")) return false;
+    const vagueTerms = [
+      "toy", "toys", "box", "small box", "glass jar", "green plush", "plush toy",
+      "white ceramic", "ceramic toilet", "star wars box", "books", "book lot",
+      "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand"
+    ];
+    if (vagueTerms.some((term) => q === term || q.includes(term))) return false;
+    return q.length >= 4;
   }
   function escapeHtml(value) {
     return String(value ?? "")
@@ -321,6 +336,14 @@
   function triageSearchButtons(item) {
     const q = (item.search_phrase || item.label || "").trim();
     if (!q) return "";
+    if (!isSpecificLookup(item)) {
+      return `
+        <div class="triage-actions">
+          <button type="button" class="btn secondary btnCopyTriageSearch" data-search="${escapeHtml(q)}">Copy note</button>
+          <span class="disabled-hint">No comps until the item is ID’d.</span>
+        </div>
+      `;
+    }
     return `
       <div class="triage-actions">
         <a class="btn secondary" target="_blank" rel="noopener noreferrer" href="${escapeHtml(ebaySoldUrl(q))}">Sold comps</a>
