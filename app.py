@@ -21,11 +21,12 @@ import uuid
 import urllib.request
 import urllib.parse
 import urllib.error
+import openpyxl
 from difflib import SequenceMatcher
 
 
 
-from models import db, Item, ItemImage
+from models import db, Item, ItemImage, ScannerWatchKeyword
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 
@@ -474,6 +475,7 @@ def _clean_triage_label(value: str):
 def _split_triage_label_reason(label: str, reason: str):
     label = _clean_triage_label(label)
     reason = re.sub(r"\s+", " ", str(reason or "")).strip()
+    reason = re.split(r"\b(?:wait|looking closer|or maybe|actually|ac[t]?\b)\b", reason, maxsplit=1, flags=re.IGNORECASE)[0].strip(" .")
     sentence_match = re.match(r'^(.{4,90}?)\.\s+(.+)$', label)
     if sentence_match and not reason:
         label = _clean_triage_label(sentence_match.group(1))
@@ -505,6 +507,10 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "image analysis", "photo analysis", "shelf photo", "shelf triage",
         "refine selections", "final answer", "analysis", "image description",
         "left", "right", "middle", "middle/right", "left/right", "far right", "far left",
+        "top", "bottom", "left stack", "right stack", "middle stack", "top stack",
+        "bottom stack", "left side", "right side", "middle section", "top section",
+        "bottom section", "left section", "right section",
+        "top right boxes", "bottom shelf red spines", "red spines", "spines",
         "left shelf", "right shelf", "middle shelf", "top shelf",
         "bottom shelf", "bookshelf", "bookcase", "tv stand", "entertainment center",
         "first shelf", "second shelf", "third shelf", "fourth shelf",
@@ -512,6 +518,12 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "second shelf down", "third shelf down", "left shelf (bookshelf)",
     )
     if label_value in non_item_labels or search_value in non_item_labels:
+        return True
+    location_only_pattern = (
+        r"(?:far\s+)?(?:left|right|middle|center|top|bottom)"
+        r"(?:\s+(?:stack|side|section|area|pile|group|shelf|row|box|boxes))?"
+    )
+    if re.fullmatch(location_only_pattern, label_value) or re.fullmatch(location_only_pattern, search_value):
         return True
     if re.fullmatch(r"(?:left|right|middle|top|bottom|first|second|third|fourth)\s+shelf(?:\s+down)?(?:\s*\([^)]*\))?", label_value):
         return True
@@ -528,6 +540,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "cords", "accessories", "trash bin", "trash can", "garbage can",
         "generic books", "generic book", "random books",
         "books/dvds", "books / dvds", "middle shelves", "shelf contents",
+        "top right boxes", "bottom shelf red spines", "red spines",
     )
     if any(term in text_value for term in hard_skip_terms):
         return True
@@ -536,6 +549,7 @@ def _is_noise_shelf_triage_item(item: dict, bucket: str):
         "generic toy", "toy on", "yellow toy", "grey toy", "gray toy",
         "small toy", "toys", "misc toy", "unbranded toy",
         "generic box", "unknown box", "small box on", "small boxes on", "box on tv stand",
+        "top right boxes",
         "disney box", "nickelodeon box",
     )
     value_clues = (
@@ -632,6 +646,9 @@ def _normalize_shelf_triage(parsed):
         )
         if label.lower() in existing or search_phrase.lower() in existing:
             return
+        broad_keys = ("zelda", "dungeons", "d&d", "dnd", "tsr", "pathfinder", "warhammer", "magic", "mtg", "lord of the rings", "hobbit")
+        if any(key in label.lower() and key in existing for key in broad_keys):
+            return
         if len(focus_first) >= 5:
             maybe_check.append({
                 "label": label,
@@ -648,6 +665,15 @@ def _normalize_shelf_triage(parsed):
             })
 
     visible_blob = " ".join(cleaned_visible_text).lower()
+    if "one ring" not in visible_blob:
+        for item in focus_first + maybe_check:
+            item_text = f"{item.get('label', '')} {item.get('search_phrase', '')}".lower()
+            if "one ring" in item_text:
+                item["confidence"] = "low"
+                if item.get("why"):
+                    item["why"] = f"{item['why']} Verify the title first; OCR did not confirm it."
+                else:
+                    item["why"] = "Verify the title first; OCR did not confirm it."
     keyword_promotions = [
         ("Legend of Zelda", "Legend of Zelda", "Visible Zelda/Nintendo keyword; always worth checking."),
         ("Dungeons & Dragons books", "Dungeons & Dragons books", "Visible D&D/tabletop RPG books; check edition and publisher."),
@@ -808,6 +834,197 @@ def _apply_history_triage_boosts(triage: dict, promotions: list):
     triage["maybe_check"] = maybe_check[:5]
     triage["probably_skip"] = probably_skip[:5]
     return triage
+
+
+def _header_key(value: str):
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _row_get(row: dict, *names):
+    wanted = {_header_key(name) for name in names}
+    for key, value in row.items():
+        if _header_key(key) in wanted:
+            return "" if value is None else str(value).strip()
+    return ""
+
+
+def _parse_scanner_watchlist_upload(file_storage):
+    if not file_storage:
+        raise ValueError("Choose a CSV or XLSX watchlist file first.")
+    filename = (file_storage.filename or "").lower()
+    raw = file_storage.read()
+    if not raw:
+        raise ValueError("Choose a CSV or XLSX watchlist file first.")
+
+    rows = []
+    if filename.endswith(".xlsx"):
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        values = ws.iter_rows(values_only=True)
+        headers = [str(h or "").strip() for h in next(values, [])]
+        for values_row in values:
+            row = {headers[i]: values_row[i] if i < len(values_row) else "" for i in range(len(headers))}
+            if any(str(v or "").strip() for v in row.values()):
+                rows.append(row)
+    elif filename.endswith(".csv"):
+        text_stream = io.StringIO(raw.decode("utf-8-sig", errors="replace"))
+        rows = list(csv.DictReader(text_stream))
+    else:
+        raise ValueError("Watchlist import supports .xlsx or .csv files.")
+
+    entries = []
+    for row in rows:
+        category = _row_get(row, "category", "type", "department")
+        brand = _row_get(row, "brand / company", "brand", "company", "keyword", "franchise", "item")
+        item_keywords = _row_get(row, "item keywords", "keywords", "items", "search", "search phrase", "search_phrase")
+        notes = _row_get(row, "notes", "note", "why", "details")
+        priority = (_row_get(row, "priority") or "high").lower()
+        comp_raw = (_row_get(row, "comp_link_allowed", "comp links", "show comps") or "yes").lower()
+        comp_link_allowed = comp_raw not in {"no", "false", "0", "n"}
+
+        keyword = _clean_triage_label(brand or item_keywords)
+        if not keyword:
+            continue
+        label = _clean_triage_label(_row_get(row, "label", "display label") or keyword)
+        search_phrase = _clean_triage_search_phrase(
+            _row_get(row, "search_phrase", "search phrase", "search") or keyword,
+            keyword,
+        )
+        if item_keywords and item_keywords != search_phrase:
+            keyword_note = f"Keyword hints: {item_keywords}"
+            notes = f"{notes}\n{keyword_note}".strip()
+        if category:
+            notes = f"Watchlist category: {category}. {notes}".strip()
+
+        entries.append({
+            "keyword": keyword[:160],
+            "label": label[:180],
+            "search_phrase": search_phrase[:220],
+            "category": category[:140] if category else None,
+            "priority": priority[:40] or "high",
+            "comp_link_allowed": comp_link_allowed,
+            "notes": notes,
+        })
+    return entries
+
+
+def _scanner_watchlist_promotions(limit: int = 2500):
+    try:
+        rows = (
+            ScannerWatchKeyword.query
+            .filter(ScannerWatchKeyword.active.is_(True))
+            .order_by(ScannerWatchKeyword.priority.asc(), ScannerWatchKeyword.keyword.asc())
+            .limit(limit)
+            .all()
+        )
+    except Exception:
+        return []
+
+    return [{
+        "keyword": row.keyword,
+        "label": row.label or row.keyword,
+        "search_phrase": row.search_phrase or row.keyword,
+        "category": row.category or "",
+        "priority": row.priority or "high",
+        "comp_link_allowed": bool(row.comp_link_allowed),
+        "notes": row.notes or "",
+    } for row in rows if row.keyword]
+
+
+def _text_has_watch_keyword(text_blob: str, keyword: str):
+    keyword_norm = _norm_title(keyword)
+    text_norm = _norm_title(text_blob)
+    if not keyword_norm or len(keyword_norm) < 3:
+        return False
+    return re.search(rf"\b{re.escape(keyword_norm)}\b", text_norm) is not None
+
+
+def _apply_watchlist_triage_boosts(triage: dict, promotions: list):
+    if not promotions:
+        return triage
+
+    focus_first = list(triage.get("focus_first") or [])
+    maybe_check = list(triage.get("maybe_check") or [])
+    probably_skip = list(triage.get("probably_skip") or [])
+    visible_text = list(triage.get("visible_text") or [])
+    scan_blob = " ".join(
+        visible_text +
+        [str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip] +
+        [str(item.get("why", "")) for item in focus_first + maybe_check + probably_skip]
+    )
+    existing_blob = " ".join(str(item.get("label", "")) for item in focus_first + maybe_check + probably_skip).lower()
+
+    priority_rank = {"high": 0, "medium": 1, "inspect": 2, "low": 3}
+    for promo in sorted(promotions, key=lambda p: priority_rank.get((p.get("priority") or "high").lower(), 1)):
+        keyword = promo.get("keyword") or ""
+        if not _text_has_watch_keyword(scan_blob, keyword):
+            continue
+        label = promo.get("label") or keyword
+        if label.lower() in existing_blob or keyword.lower() in existing_blob:
+            continue
+        priority = (promo.get("priority") or "high").lower()
+        lead = {
+            "label": f"Watchlist match: {label}",
+            "why": (promo.get("notes") or f"Matched your scanner watchlist keyword: {keyword}.")[:260],
+            "search_phrase": promo.get("search_phrase") or keyword,
+            "confidence": "high" if promo.get("comp_link_allowed") and priority == "high" else "medium",
+        }
+        if priority in {"high", "medium"} and len(focus_first) < 5:
+            focus_first.insert(0, lead)
+        elif len(maybe_check) < 5:
+            maybe_check.append(lead)
+        else:
+            break
+        existing_blob += " " + label.lower() + " " + keyword.lower()
+
+    triage["focus_first"] = focus_first[:5]
+    triage["maybe_check"] = maybe_check[:5]
+    triage["probably_skip"] = probably_skip[:5]
+    return triage
+
+
+def _save_scanner_watchlist_entries(entries: list, replace_existing: bool = False):
+    if replace_existing:
+        ScannerWatchKeyword.query.delete()
+        db.session.flush()
+
+    imported = 0
+    updated = 0
+    for entry in entries:
+        keyword = (entry.get("keyword") or "").strip()
+        if not keyword:
+            continue
+        existing = (
+            ScannerWatchKeyword.query
+            .filter(func.lower(ScannerWatchKeyword.keyword) == keyword.lower())
+            .first()
+        )
+        if existing:
+            existing.label = entry.get("label") or keyword
+            existing.search_phrase = entry.get("search_phrase") or keyword
+            existing.category = entry.get("category")
+            existing.priority = entry.get("priority") or "high"
+            existing.comp_link_allowed = bool(entry.get("comp_link_allowed", True))
+            existing.notes = entry.get("notes")
+            existing.source = entry.get("source") or existing.source or "scanner-import"
+            existing.active = True
+            updated += 1
+        else:
+            db.session.add(ScannerWatchKeyword(
+                keyword=keyword,
+                label=entry.get("label") or keyword,
+                search_phrase=entry.get("search_phrase") or keyword,
+                category=entry.get("category"),
+                priority=entry.get("priority") or "high",
+                comp_link_allowed=bool(entry.get("comp_link_allowed", True)),
+                notes=entry.get("notes"),
+                source=entry.get("source") or "scanner-import",
+                active=True,
+            ))
+            imported += 1
+
+    db.session.commit()
+    return imported, updated
 
 
 def _sqlite_column_exists(table_name: str, column_name: str) -> bool:
@@ -2245,7 +2462,30 @@ def create_app():
     @app.get("/tools/scanner")
     @auth_required
     def scanner_tool():
-        return render_template("scanner_tool.html")
+        watchlist_count = ScannerWatchKeyword.query.filter(ScannerWatchKeyword.active.is_(True)).count()
+        return render_template("scanner_tool.html", watchlist_count=watchlist_count)
+
+    @app.post("/tools/scanner/watchlist/import")
+    @auth_required
+    def scanner_watchlist_import():
+        file_storage = request.files.get("watchlist_file")
+        replace_existing = request.form.get("replace_existing") == "1"
+        try:
+            entries = _parse_scanner_watchlist_upload(file_storage)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("scanner_tool"))
+
+        if not entries:
+            flash("No watchlist keywords were found in that file.", "error")
+            return redirect(url_for("scanner_tool"))
+
+        imported, updated = _save_scanner_watchlist_entries(entries, replace_existing=replace_existing)
+        flash(
+            f"Scanner watchlist imported. Added {imported}, updated {updated}.",
+            "success",
+        )
+        return redirect(url_for("scanner_tool"))
 
     @app.post("/tools/scanner/quick-create")
     @auth_required
@@ -2316,7 +2556,17 @@ def create_app():
                 "error": "Set LM_STUDIO_URL/VISION_API_BASE for local vision, or set OPENAI_API_KEY for hosted vision.",
             }), 400
 
+        watchlist_promotions = _scanner_watchlist_promotions()
         history_promotions = _scanner_history_keyword_promotions()
+        watchlist_hint = ""
+        if watchlist_promotions:
+            watchlist_terms = ", ".join(p["keyword"] for p in watchlist_promotions[:60])
+            watchlist_hint = (
+                "The user also has a scanner watchlist of brands/franchises/categories they want surfaced. "
+                f"Watchlist keywords include: {watchlist_terms}. "
+                "If any watchlist keyword is visible or strongly implied, include it as a real product lead; "
+                "do not use vague location labels for it. "
+            )
         history_hint = ""
         if history_promotions:
             history_terms = ", ".join(p["keyword"] for p in history_promotions[:35])
@@ -2358,6 +2608,7 @@ def create_app():
             "Dungeons & Dragons/D&D/DND/AD&D, TSR, Pathfinder, Warhammer, Magic: The Gathering/MTG, Pokemon, Yu-Gi-Oh, "
             "Lord of the Rings/Hobbit, Star Wars, anime/manga, comics, and similar fandom/IP items. These can be valuable "
             "even when they are books/manuals/cards rather than toys. "
+            f"{watchlist_hint}"
             f"{history_hint}"
             "Use confidence 'high' only when you can read a specific product title, brand+model, UPC, or exact named item suitable "
             "for an eBay sold search. For partial/generic descriptions like 'Star Wars box', 'green plush toy', 'white ceramic toilet', "
@@ -2461,6 +2712,7 @@ def create_app():
                     "visible_text": [],
                 })
 
+        triage = _apply_watchlist_triage_boosts(triage, watchlist_promotions)
         triage = _apply_history_triage_boosts(triage, history_promotions)
         return jsonify({"ok": True, "triage": triage})
 

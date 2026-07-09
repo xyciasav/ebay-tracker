@@ -88,12 +88,24 @@
   .quick-details summary::after{ content:"+"; float:right; color:var(--muted); }
   .quick-details[open] summary::after{ content:"–"; }
   .quick-details-body{ padding:0 14px 14px; }
+  .watchlist-import-row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:end; margin-top:10px; }
+  .watchlist-import-row input[type="file"]{
+    width:100%;
+    border:1px solid var(--border2);
+    border-radius:12px;
+    padding:10px;
+    background:var(--soft);
+    color:var(--text);
+  }
+  .watchlist-options{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  .watchlist-options label{ display:inline-flex; gap:7px; align-items:center; margin:0; color:var(--muted); font-size:13px; }
   @media (max-width:680px){
     .scanner-shell{ margin:0; }
     .scanner-actions,
     .fast-actions,
     .draft-grid,
     .quick-card-row,
+    .watchlist-import-row,
     .photo-picker-row,
     .focus-grid{ grid-template-columns:1fr; }
     .scan-field{ display:block; }
@@ -252,6 +264,33 @@
     </div>
   </section>
 
+  <details class="quick-details">
+    <summary>
+      Scanner watchlist
+      <span class="small" style="margin-left:8px;">{{ watchlist_count|default(0) }} active keywords</span>
+    </summary>
+    <div class="quick-details-body">
+      <div class="small">
+        Upload a CSV/XLSX of brands, franchises, books, games, or categories you want the shelf scanner to notice.
+        It understands columns like <code>Category</code>, <code>Brand / Company</code>, and <code>Item Keywords</code>.
+      </div>
+      <form method="post" action="{{ url_for('scanner_watchlist_import') }}" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <div class="watchlist-import-row">
+          <div>
+            <label>Watchlist file</label>
+            <input type="file" name="watchlist_file" accept=".csv,.xlsx" required>
+          </div>
+          <button type="submit" class="btn">Import</button>
+        </div>
+        <div class="watchlist-options">
+          <label><input type="checkbox" name="replace_existing" value="1"> Replace existing watchlist</label>
+          <span class="small">Leave unchecked to add/update without wiping what is already stored.</span>
+        </div>
+      </form>
+    </div>
+  </details>
+
   <section class="card mobile-panel">
     <h3 style="margin-top:0;">How this avoids duplicates</h3>
     <ul class="hint-list">
@@ -325,7 +364,10 @@
     const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
     const words = q.split(/\s+/).filter(Boolean);
     const namedCategory = /\b(series|set|board game|card game|hardcover|paperback|book|books|novel|edition|trilogy|collection)\b/.test(q);
+    const strongIpFormat = /\b(zelda|fallout|goosebumps|lord of the rings|hobbit|harry potter|pokemon|dungeons|dragons|d&d|tsr|pathfinder|warhammer|magic the gathering|mtg|star wars)\b/.test(q)
+      && /\b(book|books|guide|manual|box set|set|collection|board game|card game|game|rpg|sourcebook)\b/.test(q);
     const lookupWorthy = confidence.includes("high") ||
+      strongIpFormat ||
       (confidence.includes("medium") && (words.length >= 3 || namedCategory)) ||
       (why.includes("readable") && why.includes("high confidence")) ||
       why.includes("exact readable") ||
@@ -341,7 +383,8 @@
       "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand",
       "left stack", "top box", "second box", "top", "used graphics card",
       "graphics card/pc hardware", "pc hardware", "computer hardware stack",
-      "black computer hardware stack"
+      "black computer hardware stack", "top right boxes", "bottom shelf red spines",
+      "red spines", "spines"
     ];
     if (vagueTerms.some((term) => q === term || q.includes(term))) return false;
     return q.length >= 4;

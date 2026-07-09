@@ -98,6 +98,9 @@ Notes
   `VISION_API_BASE` plus `VISION_MODEL`. Use `VISION_MAX_TOKENS` if your local
   model cuts off responses. If no local URL is configured, hosted OpenAI vision
   can be used with `OPENAI_API_KEY` and `OPENAI_VISION_MODEL`.
+- The scanner watchlist import accepts CSV/XLSX files with columns such as
+  `Category`, `Brand / Company`, and `Item Keywords` so the shelf scanner can
+  prioritize brands/franchises you care about.
 - SQLite is used by default but can be swapped for Postgres
 - Docker deployments require `FLASK_SECRET_KEY`, `BASIC_AUTH_USER`, and
   `BASIC_AUTH_PASS` in a local `.env` file. Start with `.env.example` and do

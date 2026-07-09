@@ -76,3 +76,20 @@ class ItemImage(db.Model):
     item_sku = db.Column(db.Integer, db.ForeignKey("items.sku"), nullable=False)
     filename = db.Column(db.String(500), nullable=False)  # stored filename on disk
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ScannerWatchKeyword(db.Model):
+    __tablename__ = "scanner_watch_keywords"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    keyword = db.Column(db.String(160), nullable=False, index=True)
+    label = db.Column(db.String(180), nullable=True)
+    search_phrase = db.Column(db.String(220), nullable=True)
+    category = db.Column(db.String(140), nullable=True)
+    priority = db.Column(db.String(40), default="high", nullable=False)
+    comp_link_allowed = db.Column(db.Boolean, default=True, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    source = db.Column(db.String(120), nullable=True)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
