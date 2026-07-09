@@ -2100,6 +2100,9 @@ def create_app():
             or ("local-vision" if using_local_vision else "gpt-5.5")
         ).strip()
         max_tokens = parse_int(os.environ.get("VISION_MAX_TOKENS")) or 1600
+        vision_temperature = parse_float(os.environ.get("VISION_TEMPERATURE"))
+        if vision_temperature is None:
+            vision_temperature = 0
         json_system_prompt = (
             "You are a JSON API for a reseller shelf-photo triage tool. "
             "Return only one valid JSON object. Do not include markdown, chain-of-thought, analysis, or explanations outside JSON."
@@ -2155,7 +2158,8 @@ def create_app():
                         },
                     ],
                     "max_tokens": max_tokens,
-                    "temperature": 0.2,
+                    "temperature": vision_temperature,
+                    "top_p": 0.1,
                 }
                 if use_response_format:
                     body["response_format"] = {"type": "json_object"}

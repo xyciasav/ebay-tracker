@@ -323,16 +323,24 @@
     const confidence = String(item.confidence || "").toLowerCase();
     const why = String(item.why || "").toLowerCase();
     const q = String(item.search_phrase || item.label || "").trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
     const lookupWorthy = confidence.includes("high") ||
+      (confidence.includes("medium") && words.length >= 2) ||
       (why.includes("readable") && why.includes("high confidence")) ||
       why.includes("exact readable") ||
       why.includes("specific readable") ||
-      why.includes("specific title");
+      why.includes("specific title") ||
+      why.includes("recognizable branding") ||
+      why.includes("popular game") ||
+      why.includes("licensed");
     if (!lookupWorthy) return false;
     const vagueTerms = [
-      "toy", "toys", "box", "small box", "glass jar", "green plush", "plush toy",
+      "toy", "toys", "small box", "glass jar", "green plush", "plush toy",
       "white ceramic", "ceramic toilet", "star wars box", "book lot",
-      "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand"
+      "unknown", "inspect", "check tag", "maker mark", "bottom left", "tv stand",
+      "left stack", "top box", "second box", "top", "used graphics card",
+      "graphics card/pc hardware", "pc hardware", "computer hardware stack",
+      "black computer hardware stack"
     ];
     if (vagueTerms.some((term) => q === term || q.includes(term))) return false;
     return q.length >= 4;
