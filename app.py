@@ -22,6 +22,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import openpyxl
+import math
 from difflib import SequenceMatcher
 
 
@@ -4070,6 +4071,7 @@ def create_app():
         profit_trend = [
             {
                 "period": r.period,
+                "label": r.period,
                 "profit": float(r.profit or 0.0),
                 "gross_sales": float(r.gross_sales or 0.0),
                 "shipping": float(r.shipping or 0.0),
@@ -4079,9 +4081,26 @@ def create_app():
             }
             for r in reversed(trend_rows)
         ]
-        max_trend_profit = max([abs(r["profit"]) for r in profit_trend] + [1.0])
+        for idx, row in enumerate(profit_trend):
+            if trend_mode == "day":
+                parsed_period = parse_date(row["period"])
+                row["label"] = f"{parsed_period.month}/{parsed_period.day}" if parsed_period else row["period"]
+                row["show_label"] = idx % 3 == 0 or idx == len(profit_trend) - 1
+            elif trend_mode == "week":
+                row["label"] = row["period"].replace("-W", " W")
+                row["show_label"] = idx % 2 == 0 or idx == len(profit_trend) - 1
+            else:
+                try:
+                    parsed_period = datetime.strptime(row["period"], "%Y-%m")
+                    row["label"] = parsed_period.strftime("%b %Y")
+                except ValueError:
+                    row["label"] = row["period"]
+                row["show_label"] = True
+
+        max_trend_profit = max([math.sqrt(abs(r["profit"])) for r in profit_trend if r["profit"]] + [1.0])
         for r in profit_trend:
-            r["height"] = max(6.0, abs(r["profit"]) * 100.0 / max_trend_profit)
+            scaled = math.sqrt(abs(r["profit"])) if r["profit"] else 0.0
+            r["height"] = max(8.0, scaled * 100.0 / max_trend_profit) if scaled else 3.0
 
         cost_breakdown = [
             {"label": "COG", "amount": cog_total, "class": "cog"},
@@ -4090,9 +4109,10 @@ def create_app():
             {"label": "Ad fees", "amount": ad_fee_total, "class": "ads"},
             {"label": "Refunds", "amount": refund_total, "class": "refunds"},
         ]
-        max_cost = max([row["amount"] for row in cost_breakdown] + [1.0])
+        cost_scale_total = money_out_total or max([row["amount"] for row in cost_breakdown] + [1.0])
         for row in cost_breakdown:
-            row["pct"] = max(4.0, row["amount"] * 100.0 / max_cost) if row["amount"] else 0.0
+            row["share_pct"] = (row["amount"] * 100.0 / cost_scale_total) if cost_scale_total else 0.0
+            row["pct"] = max(4.0, row["share_pct"]) if row["amount"] else 0.0
 
         # Top profit items (sold in range)
         top_q = (
