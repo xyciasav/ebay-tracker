@@ -3675,6 +3675,9 @@ def create_app():
         range_key = (request.args.get("range") or "all").strip().lower()
         start_s = (request.args.get("start") or "").strip()
         end_s = (request.args.get("end") or "").strip()
+        trend_mode = (request.args.get("trend") or "month").strip().lower()
+        if trend_mode not in {"day", "week", "month"}:
+            trend_mode = "month"
         top_n = parse_int(request.args.get("top")) or 10
         top_n = max(5, min(top_n, 25))
 
@@ -3797,6 +3800,34 @@ def create_app():
         total_profit = float(total_profit_q.scalar() or 0.0)
 
         avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
+
+        financial_item_expr = (
+            (Item.sold.is_(True)) &
+            (Item.canceled.is_(False)) &
+            ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
+        )
+        financial_totals_q = (
+            db.session.query(
+                func.coalesce(func.sum(Item.buyer_paid_amount), 0.0).label("gross_sales"),
+                func.coalesce(func.sum(Item.cog), 0.0).label("cog"),
+                func.coalesce(func.sum(Item.shipping), 0.0).label("shipping"),
+                func.coalesce(func.sum(Item.ebay_fee), 0.0).label("ebay_fee"),
+                func.coalesce(func.sum(Item.ad_fee), 0.0).label("ad_fee"),
+            )
+            .filter(financial_item_expr)
+        )
+        if sold_date_filters:
+            financial_totals_q = financial_totals_q.filter(*sold_date_filters)
+        financial_totals_row = financial_totals_q.one()
+        gross_sales_total = float(financial_totals_row.gross_sales or 0.0)
+        cog_total = float(financial_totals_row.cog or 0.0)
+        shipping_total = float(financial_totals_row.shipping or 0.0)
+        ebay_fee_total = float(financial_totals_row.ebay_fee or 0.0)
+        ad_fee_total = float(financial_totals_row.ad_fee or 0.0)
+        operating_cost_total = cog_total + shipping_total + ebay_fee_total + ad_fee_total
+        money_out_total = operating_cost_total + refund_total
+        net_sales_total = gross_sales_total - refund_total
+        profit_margin_pct = (total_profit / gross_sales_total * 100.0) if gross_sales_total else 0.0
 
         avg_days_to_sell_q = (
             db.session.query(func.avg(days_to_sell_expr))
@@ -4005,21 +4036,45 @@ def create_app():
         for r in category_chart:
             r["profit_width"] = max(4.0, abs(r["total_profit"]) * 100.0 / max_category_profit)
 
+        if trend_mode == "day":
+            trend_period_expr = func.strftime("%Y-%m-%d", Item.date_sold)
+            trend_limit = 30
+            trend_title = "Daily profit"
+            trend_note = "Last 30 sold days in range"
+        elif trend_mode == "week":
+            trend_period_expr = func.strftime("%Y-W%W", Item.date_sold)
+            trend_limit = 26
+            trend_title = "Weekly profit"
+            trend_note = "Last 26 sold weeks in range"
+        else:
+            trend_period_expr = func.strftime("%Y-%m", Item.date_sold)
+            trend_limit = 12
+            trend_title = "Monthly profit"
+            trend_note = "Last 12 sold months in range"
+
         trend_q = (
             db.session.query(
-                func.strftime("%Y-%m", Item.date_sold).label("period"),
+                trend_period_expr.label("period"),
                 func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
+                func.coalesce(func.sum(Item.buyer_paid_amount), 0.0).label("gross_sales"),
+                func.coalesce(func.sum(Item.shipping), 0.0).label("shipping"),
+                func.coalesce(func.sum(Item.ebay_fee), 0.0).label("ebay_fee"),
+                func.coalesce(func.sum(Item.ad_fee), 0.0).label("ad_fee"),
                 func.count(Item.sku).label("sold_count"),
             )
             .filter(confirmed_sold_expr, Item.date_sold.isnot(None))
         )
         if sold_date_filters:
             trend_q = trend_q.filter(*sold_date_filters)
-        trend_rows = trend_q.group_by("period").order_by(text("period DESC")).limit(12).all()
+        trend_rows = trend_q.group_by("period").order_by(text("period DESC")).limit(trend_limit).all()
         profit_trend = [
             {
                 "period": r.period,
                 "profit": float(r.profit or 0.0),
+                "gross_sales": float(r.gross_sales or 0.0),
+                "shipping": float(r.shipping or 0.0),
+                "ebay_fee": float(r.ebay_fee or 0.0),
+                "ad_fee": float(r.ad_fee or 0.0),
                 "sold_count": int(r.sold_count or 0),
             }
             for r in reversed(trend_rows)
@@ -4027,6 +4082,17 @@ def create_app():
         max_trend_profit = max([abs(r["profit"]) for r in profit_trend] + [1.0])
         for r in profit_trend:
             r["height"] = max(6.0, abs(r["profit"]) * 100.0 / max_trend_profit)
+
+        cost_breakdown = [
+            {"label": "COG", "amount": cog_total, "class": "cog"},
+            {"label": "Shipping", "amount": shipping_total, "class": "shipping"},
+            {"label": "eBay fees", "amount": ebay_fee_total, "class": "fees"},
+            {"label": "Ad fees", "amount": ad_fee_total, "class": "ads"},
+            {"label": "Refunds", "amount": refund_total, "class": "refunds"},
+        ]
+        max_cost = max([row["amount"] for row in cost_breakdown] + [1.0])
+        for row in cost_breakdown:
+            row["pct"] = max(4.0, row["amount"] * 100.0 / max_cost) if row["amount"] else 0.0
 
         # Top profit items (sold in range)
         top_q = (
@@ -4184,6 +4250,15 @@ def create_app():
             "sold_rate_pct": sold_rate_pct,
             "total_profit": float(total_profit),
             "avg_profit_per_sold": float(avg_profit_per_sold),
+            "gross_sales_total": gross_sales_total,
+            "net_sales_total": net_sales_total,
+            "cog_total": cog_total,
+            "shipping_total": shipping_total,
+            "ebay_fee_total": ebay_fee_total,
+            "ad_fee_total": ad_fee_total,
+            "operating_cost_total": operating_cost_total,
+            "money_out_total": money_out_total,
+            "profit_margin_pct": profit_margin_pct,
             "avg_days_to_sell": float(avg_days_to_sell),
             "unsold_inventory_cost": unsold_inventory_cost,
             "unsold_listed_value": unsold_listed_value,
@@ -4196,6 +4271,9 @@ def create_app():
             "source_chart": source_chart,
             "category_chart": category_chart,
             "profit_trend": profit_trend,
+            "cost_breakdown": cost_breakdown,
+            "trend_title": trend_title,
+            "trend_note": trend_note,
         }
 
         return render_template(
@@ -4210,6 +4288,7 @@ def create_app():
             negative_profit=negative_profit,
             report_viz=report_viz,
             range_key=range_key,
+            trend_mode=trend_mode,
             start=start_date.isoformat() if start_date else "",
             end=end_date.isoformat() if end_date else "",
             top_n=top_n,

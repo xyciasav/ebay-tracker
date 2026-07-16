@@ -56,7 +56,16 @@
   .bar-track{ height:12px; border-radius:999px; background:var(--soft); border:1px solid var(--border2); overflow:hidden; }
   .bar-fill{ height:100%; border-radius:999px; background:var(--accent); }
   .bar-fill.negative{ background:var(--danger); }
+  .bar-fill.cog{ background:var(--warning); }
+  .bar-fill.shipping{ background:var(--accent); }
+  .bar-fill.fees{ background:color-mix(in srgb, var(--danger) 70%, var(--accent)); }
+  .bar-fill.ads{ background:color-mix(in srgb, var(--warning) 70%, var(--accent)); }
+  .bar-fill.refunds{ background:var(--danger); }
   .bar-value{ text-align:right; font-weight:700; }
+  .finance-strip{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+  .finance-tile{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--card); }
+  .finance-tile label{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  .finance-tile strong{ display:block; margin-top:6px; font-size:24px; letter-spacing:-.03em; }
   .action-layout{ display:grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr); gap:14px; align-items:start; }
   .action-card{ max-height:360px; display:flex; flex-direction:column; min-height:0; }
   .action-list{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; }
@@ -123,6 +132,14 @@
         </select>
       </div>
       <div>
+        <label>Trend</label>
+        <select name="trend">
+          <option value="day" {% if trend_mode == 'day' %}selected{% endif %}>By day</option>
+          <option value="week" {% if trend_mode == 'week' %}selected{% endif %}>By week</option>
+          <option value="month" {% if trend_mode == 'month' %}selected{% endif %}>By month</option>
+        </select>
+      </div>
+      <div>
         <button class="btn" type="submit">Apply</button>
         <a class="btn secondary" href="{{ url_for('reports') }}">Reset</a>
       </div>
@@ -157,7 +174,60 @@
     </div>
   </section>
 
+  <section class="finance-strip">
+    <div class="finance-tile">
+      <label>Gross sales</label>
+      <strong>${{ "%.2f"|format(kpis.gross_sales_total) }}</strong>
+      <div class="small">Buyer paid before tax</div>
+    </div>
+    <div class="finance-tile">
+      <label>Net sales</label>
+      <strong>${{ "%.2f"|format(kpis.net_sales_total) }}</strong>
+      <div class="small">Gross minus refunds</div>
+    </div>
+    <div class="finance-tile">
+      <label>Shipping paid</label>
+      <strong>${{ "%.2f"|format(kpis.shipping_total) }}</strong>
+      <div class="small">Actual label cost</div>
+    </div>
+    <div class="finance-tile">
+      <label>eBay fees</label>
+      <strong>${{ "%.2f"|format(kpis.ebay_fee_total) }}</strong>
+      <div class="small">Net fees after credits</div>
+    </div>
+    <div class="finance-tile">
+      <label>Ad fees</label>
+      <strong>${{ "%.2f"|format(kpis.ad_fee_total) }}</strong>
+      <div class="small">Promoted listing cost</div>
+    </div>
+    <div class="finance-tile">
+      <label>Margin</label>
+      <strong>{{ "%.1f"|format(kpis.profit_margin_pct) }}%</strong>
+      <div class="small">Profit / gross sales</div>
+    </div>
+  </section>
+
   <section class="visual-grid">
+    <div class="card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Money out</div>
+          <h3>Cost breakdown</h3>
+        </div>
+        <div class="small">${{ "%.2f"|format(kpis.money_out_total) }} total</div>
+      </div>
+      <div class="bar-list">
+        {% for r in report_viz.cost_breakdown %}
+          <div class="bar-row">
+            <div class="bar-label" title="{{ r.label }}">{{ r.label }}</div>
+            <div class="bar-track"><div class="bar-fill {{ r.class }}" style="width: {{ r.pct }}%;"></div></div>
+            <div class="bar-value">${{ "%.2f"|format(r.amount) }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="small" style="margin-top:10px;">Operating costs: ${{ "%.2f"|format(kpis.operating_cost_total) }} · refunds: ${{ "%.2f"|format(kpis.refund_total) }}</div>
+    </div>
+
     <div class="card">
       <div class="panel-heading">
         <div>
@@ -185,9 +255,9 @@
       <div class="panel-heading">
         <div>
           <div class="eyebrow">Profit trend</div>
-          <h3>Monthly profit</h3>
+          <h3>{{ report_viz.trend_title }}</h3>
         </div>
-        <div class="small">Last 12 sold months in range</div>
+        <div class="small">{{ report_viz.trend_note }}</div>
       </div>
       {% if report_viz.profit_trend %}
         <div class="trend-chart">
