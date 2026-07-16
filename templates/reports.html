@@ -8,7 +8,7 @@
   .report-filter > div{ min-width:150px; }
   .report-hero{
     display:grid;
-    grid-template-columns: minmax(260px, 1.25fr) repeat(3, minmax(160px, .75fr));
+    grid-template-columns: minmax(240px, 1.15fr) repeat(4, minmax(140px, .7fr));
     gap:12px;
     align-items:stretch;
   }
@@ -39,6 +39,7 @@
   .pipeline-seg.review{ background:color-mix(in srgb, var(--warning) 65%, var(--danger)); }
   .pipeline-seg.pending{ background:var(--accent); }
   .pipeline-seg.sold{ background:var(--success); }
+  .pipeline-seg.returned{ background:color-mix(in srgb, var(--danger) 70%, var(--warning)); }
   .pipeline-seg.canceled{ background:var(--danger); }
   .pipeline-legend{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:14px; }
   .legend-card{ border:1px solid var(--border2); border-radius:12px; padding:10px; background:var(--soft); text-decoration:none; color:var(--text); }
@@ -83,6 +84,7 @@
     </div>
     <div class="toolbar">
       <a class="btn secondary" href="{{ url_for('index', status='sold_review') }}">Sold Review</a>
+      <a class="btn secondary" href="{{ url_for('index', status='returned') }}">Refunded</a>
       <a class="btn secondary" href="{{ url_for('index', status='not_listed') }}">Not Listed</a>
       <a class="btn secondary" href="{{ url_for('index', status='canceled') }}">Canceled</a>
     </div>
@@ -147,6 +149,11 @@
       <label>Avg days</label>
       <strong>{{ "%.1f"|format(kpis.avg_days_to_sell) }}</strong>
       <div class="small">Listed to sold</div>
+    </div>
+    <div class="card mini-kpi">
+      <label>Refunds</label>
+      <strong>${{ "%.2f"|format(kpis.refund_total) }}</strong>
+      <div class="small">{{ kpis.returned_items }} refunded / returned</div>
     </div>
   </section>
 
@@ -240,6 +247,29 @@
   </section>
 
   <section class="action-layout">
+    <div class="card action-card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Money reversed</div>
+          <h3>Refunds / returns</h3>
+        </div>
+        <div class="small">${{ "%.2f"|format(kpis.refund_total) }}</div>
+      </div>
+      <div class="action-list">
+        {% for r in returned_attention %}
+          <div class="action-item">
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
+            <div class="small">Returned {{ r.date_returned or "date unknown" }} · refund ${{ "%.2f"|format(r.refund_amount) }} · current profit <span class="{% if r.profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</span></div>
+            {% if r.return_reference_id %}
+              <div class="small">Ref {{ r.return_reference_id }}</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="small">No refunds or returns in this view.</div>
+        {% endfor %}
+      </div>
+    </div>
+
     <div class="card action-card">
       <div class="panel-heading">
         <div>

@@ -31,6 +31,9 @@
   <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Pending Shipping</span><b>{{ status_counts.pending_shipping }}</b>
   </a>
+  <a class="status-tab {% if status_filter == 'returned' %}active{% endif %}" href="{{ url_for('index', status='returned', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+    <span>Refunded</span><b>{{ status_counts.returned }}</b>
+  </a>
   <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Canceled</span><b>{{ status_counts.canceled }}</b>
   </a>
@@ -164,7 +167,7 @@
         {% for item in items %}
           {% set is_listed = item.ebay_item_number %}
           {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold and not item.canceled else '' %}
-          {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled %}
+          {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled and not item.returned %}
           <tr>
             <td>{{ item.sku }}</td>
             <td><input class="bulk-item-checkbox" form="bulkEditForm" type="checkbox" name="skus" value="{{ item.sku }}" aria-label="Select SKU {{ item.sku }}"></td>
@@ -175,6 +178,8 @@
             <td>
               {% if item.canceled %}
                 <span class="pill canceled">Canceled</span>
+              {% elif item.returned %}
+                <span class="pill canceled">Refunded</span>
               {% elif needs_sold_review %}
                 <span class="pill review">Sold Review</span>
               {% elif item.pending_shipping %}
@@ -199,7 +204,7 @@
                 {% if ebay_url %}
                   <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
                 {% endif %}
-                {% if item.pending_shipping %}
+                {% if item.pending_shipping or (needs_sold_review and not item.returned) %}
                   <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}" style="margin:0;">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="return_to" value="{{ current_url }}">
@@ -219,7 +224,7 @@
     {% for item in items %}
       {% set is_listed = item.ebay_item_number %}
       {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number if item.ebay_item_number and not item.sold and not item.canceled else '' %}
-      {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled %}
+      {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled and not item.returned %}
       {% set image = item.images[0] if item.images else none %}
       <article class="item-card">
         <a class="item-photo" href="{{ url_for('item_detail', sku=item.sku, return_to=current_url) }}">
@@ -238,6 +243,8 @@
             </label>
             {% if item.canceled %}
               <span class="pill canceled">Canceled</span>
+            {% elif item.returned %}
+              <span class="pill canceled">Refunded</span>
             {% elif needs_sold_review %}
               <span class="pill review">Sold Review</span>
             {% elif item.pending_shipping %}
@@ -271,7 +278,9 @@
             {% endif %}
           </div>
 
-          {% if needs_sold_review %}
+          {% if item.returned %}
+            <div class="small">Refunded{% if item.refund_amount is not none %}: ${{ '%.2f'|format(item.refund_amount) }}{% endif %}.</div>
+          {% elif needs_sold_review %}
             <div class="small">Needs actual COG, shipping, ad fee, eBay fee, or buyer-paid amount.</div>
           {% endif %}
 
@@ -287,7 +296,7 @@
             {% if ebay_url %}
               <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
             {% endif %}
-            {% if item.pending_shipping %}
+            {% if item.pending_shipping or (needs_sold_review and not item.returned) %}
               <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}" style="margin:0;">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="return_to" value="{{ current_url }}">

@@ -1401,7 +1401,12 @@ def _apply_note_financial_tags(item: Item):
 
 
 def _sold_review_expr():
-    return (Item.sold.is_(True)) & (Item.sold_confirmed.is_(False)) & (Item.canceled.is_(False))
+    return (
+        (Item.sold.is_(True)) &
+        (Item.sold_confirmed.is_(False)) &
+        (Item.canceled.is_(False)) &
+        (Item.returned.is_(False))
+    )
 
 
 def _pending_shipping_expr():
@@ -1409,7 +1414,8 @@ def _pending_shipping_expr():
         (Item.sold.is_(True)) &
         (Item.sold_confirmed.is_(True)) &
         (Item.pending_shipping.is_(True)) &
-        (Item.canceled.is_(False))
+        (Item.canceled.is_(False)) &
+        (Item.returned.is_(False))
     )
 
 
@@ -1418,8 +1424,13 @@ def _shipped_sold_expr():
         (Item.sold.is_(True)) &
         (Item.sold_confirmed.is_(True)) &
         (Item.pending_shipping.is_(False)) &
-        (Item.canceled.is_(False))
+        (Item.canceled.is_(False)) &
+        (Item.returned.is_(False))
     )
+
+
+def _returned_expr():
+    return (Item.returned.is_(True)) & (Item.canceled.is_(False))
 
 
 def _is_canceled_order_row(row: dict) -> bool:
@@ -1736,8 +1747,6 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
             changes.append("Mark refunded/returned")
         if not item.sold:
             changes.append("Mark sold -> Sold Review")
-        if item.sold_confirmed and changes:
-            changes.append("Move confirmed sold -> Sold Review")
         return changes
 
     if report_kind == "expenses":
@@ -1752,8 +1761,6 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
             changes.append(change)
         if not item.sold:
             changes.append("Mark sold → Sold Review")
-        if item.sold_confirmed and changes:
-            changes.append("Move confirmed sold → Sold Review")
         return changes
 
     if report_kind == "orders":
@@ -1791,8 +1798,6 @@ def _import_change_preview(item: Item, report_kind: str, values: dict):
                 change = _preview_fill_if_missing(item, field, label, values.get(key))
                 if change:
                     changes.append(change)
-        if item.sold_confirmed and changes:
-            changes.append("Move confirmed sold → Sold Review")
         return changes
 
     for field, label, key in [
@@ -2611,8 +2616,8 @@ def create_app():
                         if item.pending_shipping:
                             item.pending_shipping = False
                             changed = True
-                    if changed and item.sold_confirmed:
-                        item.sold_confirmed = False
+                    if values.get("returned"):
+                        item.pending_shipping = False
 
                     if changed:
                         _append_note_tag(item, f"eBayTransactionReport:{order_number}")
@@ -2669,8 +2674,6 @@ def create_app():
                     if not item.sold:
                         item.sold = True
                         changed = True
-                    if changed and item.sold_confirmed:
-                        item.sold_confirmed = False
                     if changed:
                         if shipping_cost is not None:
                             _append_note_tag(item, f"eBayActualShipping:{shipping_cost:.2f}")
@@ -2831,8 +2834,6 @@ def create_app():
                         if (tracking_number or date_shipped) and item.pending_shipping:
                             item.pending_shipping = False
                             changed = True
-                        if review_changed and item.sold_confirmed:
-                            item.sold_confirmed = False
                         if changed:
                             _append_note_tag(item, f"eBayOrder:{order_number}")
                             _append_note_tag(item, f"eBaySoldFor:{price:.2f}")
@@ -3423,10 +3424,12 @@ def create_app():
             query = query.filter(_pending_shipping_expr())
         elif status_filter == "sold_review":
             query = query.filter(_sold_review_expr())
+        elif status_filter == "returned":
+            query = query.filter(_returned_expr())
         elif status_filter == "not_listed":
-            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr)
+            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(~listed_expr)
         elif status_filter == "listed":
-            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr)
+            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(listed_expr)
         elif status_filter == "canceled":
             query = query.filter(Item.canceled.is_(True))
         else:
@@ -3559,12 +3562,13 @@ def create_app():
         source_locations = get_distinct_values(Item, Item.source_location)
         status_counts = {
             "all": Item.query.count(),
-            "not_listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(~listed_expr).count(),
-            "listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False)).filter(listed_expr).count(),
+            "not_listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(~listed_expr).count(),
+            "listed": Item.query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(listed_expr).count(),
             "needs_info": Item.query.filter(_needs_listing_info_expr()).count(),
             "sold_review": Item.query.filter(_sold_review_expr()).count(),
             "pending_shipping": Item.query.filter(_pending_shipping_expr()).count(),
             "sold": Item.query.filter(_shipped_sold_expr()).count(),
+            "returned": Item.query.filter(_returned_expr()).count(),
             "canceled": Item.query.filter(Item.canceled.is_(True)).count(),
         }
 
@@ -3734,8 +3738,14 @@ def create_app():
 
         category_col = func.coalesce(Item.category, "Uncategorized")
         source_col = func.coalesce(Item.source_location, "Unknown")
-        confirmed_sold_expr = (Item.sold.is_(True)) & (Item.sold_confirmed.is_(True)) & (Item.canceled.is_(False))
-        active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False))
+        confirmed_sold_expr = (
+            (Item.sold.is_(True)) &
+            (Item.sold_confirmed.is_(True)) &
+            (Item.canceled.is_(False)) &
+            (Item.returned.is_(False))
+        )
+        returned_expr = _returned_expr()
+        active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.returned.is_(False))
         listed_expr = (Item.ebay_item_number.isnot(None)) & (Item.ebay_item_number != "")
 
         total_items = Item.query.count()
@@ -3743,7 +3753,14 @@ def create_app():
         not_listed_items = Item.query.filter(active_unsold_expr).filter(~listed_expr).count()
         sold_review_items = Item.query.filter(_sold_review_expr()).count()
         pending_shipping_items = Item.query.filter(_pending_shipping_expr()).count()
+        returned_items = Item.query.filter(returned_expr).count()
         canceled_items = Item.query.filter(Item.canceled.is_(True)).count()
+        refund_total_q = db.session.query(func.coalesce(func.sum(Item.refund_amount), 0.0)).filter(returned_expr)
+        if start_date:
+            refund_total_q = refund_total_q.filter(Item.date_returned.isnot(None), Item.date_returned >= start_date)
+        if end_date:
+            refund_total_q = refund_total_q.filter(Item.date_returned.isnot(None), Item.date_returned <= end_date)
+        refund_total = float(refund_total_q.scalar() or 0.0)
 
         unsold_inventory_cost = float(
             db.session.query(func.coalesce(func.sum(Item.cog), 0.0))
@@ -3971,6 +3988,7 @@ def create_app():
             {"label": "Sold review", "count": sold_review_items, "class": "review", "href": url_for("index", status="sold_review")},
             {"label": "Pending shipping", "count": pending_shipping_items, "class": "pending", "href": url_for("index", status="pending_shipping")},
             {"label": "Shipped sold", "count": Item.query.filter(_shipped_sold_expr()).count(), "class": "sold", "href": url_for("index", status="sold")},
+            {"label": "Refunded", "count": returned_items, "class": "returned", "href": url_for("index", status="returned")},
             {"label": "Canceled", "count": canceled_items, "class": "canceled", "href": url_for("index", status="canceled")},
         ]
         pipeline_total = sum(p["count"] for p in pipeline_items) or 1
@@ -4133,12 +4151,34 @@ def create_app():
             for r in negative_q.order_by(profit_expr.asc()).limit(12).all()
         ]
 
+        returned_rows_q = (
+            Item.query
+            .filter(returned_expr)
+            .order_by(Item.date_returned.desc().nullslast(), Item.date_sold.desc().nullslast(), Item.sku.desc())
+        )
+        if start_date:
+            returned_rows_q = returned_rows_q.filter(Item.date_returned.isnot(None), Item.date_returned >= start_date)
+        if end_date:
+            returned_rows_q = returned_rows_q.filter(Item.date_returned.isnot(None), Item.date_returned <= end_date)
+        returned_attention = []
+        for item in returned_rows_q.limit(12).all():
+            returned_attention.append({
+                "sku": item.sku,
+                "item_name": item.item_name,
+                "date_returned": item.date_returned.isoformat() if item.date_returned else "",
+                "refund_amount": float(item.refund_amount or 0.0),
+                "profit": float(item.profit or 0.0),
+                "return_reference_id": item.return_reference_id or "",
+            })
+
         kpis = {
             "total_items": total_items,
             "listed_items": listed_items,
             "not_listed_items": not_listed_items,
             "sold_review_items": sold_review_items,
             "pending_shipping_items": pending_shipping_items,
+            "returned_items": returned_items,
+            "refund_total": refund_total,
             "canceled_items": canceled_items,
             "sold_items": sold_items,
             "sold_rate_pct": sold_rate_pct,
@@ -4165,6 +4205,7 @@ def create_app():
             by_source=by_source,
             top_profit=top_profit,
             sold_review_attention=sold_review_attention,
+            returned_attention=returned_attention,
             aged_unsold=aged_unsold,
             negative_profit=negative_profit,
             report_viz=report_viz,

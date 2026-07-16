@@ -4,7 +4,7 @@
 {% block content %}
   {% set ebay_url = ('https://www.ebay.com/itm/' ~ item.ebay_item_number) if item.ebay_item_number and not item.sold and not item.canceled else (item.ebay_item_url or '') %}
   {% set hero_image = item.images[0] if item.images else none %}
-  {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled %}
+  {% set needs_sold_review = item.sold and not item.sold_confirmed and not item.canceled and not item.returned %}
 
   <div class="item-page-actions">
     <a class="btn secondary" href="{{ return_to }}">← Back</a>
@@ -18,14 +18,14 @@
       <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
     {% endif %}
     <a class="btn" href="{{ url_for('item_edit', sku=item.sku, return_to=return_to) }}">Edit</a>
-    {% if needs_sold_review and not item.returned %}
+    {% if needs_sold_review %}
       <form method="post" action="{{ url_for('item_confirm_sold', sku=item.sku) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="return_to" value="{{ return_to }}">
         <button class="btn" type="submit">Confirm Sold</button>
       </form>
     {% endif %}
-    {% if item.pending_shipping %}
+    {% if item.pending_shipping or needs_sold_review %}
       <form method="post" action="{{ url_for('item_mark_shipped', sku=item.sku) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="return_to" value="{{ return_to }}">
