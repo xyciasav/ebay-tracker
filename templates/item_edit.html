@@ -243,16 +243,19 @@
       <div style="flex:1; min-width:220px;"><label>Ad Fee</label><input name="ad_fee" value="{{ item.ad_fee or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>eBay Fee</label><input name="ebay_fee" value="{{ item.ebay_fee or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Actual Shipping Cost</label><input name="shipping" value="{{ item.shipping or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Refund Amount</label><input name="refund_amount" value="{{ item.refund_amount or '' }}"></div>
     </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>Date Listed</label><input type="date" name="date_listed" value="{{ item.date_listed or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Date Sold</label><input type="date" name="date_sold" value="{{ item.date_sold or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Date Returned</label><input type="date" name="date_returned" value="{{ item.date_returned or '' }}"></div>
       <div style="flex:1; min-width:220px;"><label>Date Shipped</label><input type="date" name="date_shipped" value="{{ item.date_shipped or '' }}"></div>
     </div>
 
     <div class="row" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
       <div style="flex:1; min-width:220px;"><label>Tracking #</label><input name="tracking_number" value="{{ item.tracking_number or '' }}"></div>
+      <div style="flex:1; min-width:220px;"><label>Return Reference</label><input name="return_reference_id" value="{{ item.return_reference_id or '' }}"></div>
       <div style="flex:1; min-width:220px;">
         <label>Sold (Y/N)</label>
         <select name="sold">
@@ -272,6 +275,13 @@
         <select name="canceled">
           <option value="N" {% if not item.canceled %}selected{% endif %}>N</option>
           <option value="Y" {% if item.canceled %}selected{% endif %}>Y</option>
+        </select>
+      </div>
+      <div style="flex:1; min-width:220px;">
+        <label>Refunded/Returned (Y/N)</label>
+        <select name="returned">
+          <option value="N" {% if not item.returned %}selected{% endif %}>N</option>
+          <option value="Y" {% if item.returned %}selected{% endif %}>Y</option>
         </select>
       </div>
     </div>

@@ -1319,7 +1319,7 @@ def _parse_ebay_date(s: str):
         return None
 
     # Active listing exports include time + timezone. Order exports are usually date-only.
-    for fmt in ("%b-%d-%y %H:%M:%S", "%b-%d-%y", "%Y-%m-%d"):
+    for fmt in ("%b %d, %Y", "%b-%d-%Y %H:%M:%S", "%b-%d-%y %H:%M:%S", "%b-%d-%y", "%Y-%m-%d"):
         candidate = v
         if fmt == "%b-%d-%y %H:%M:%S":
             parts = candidate.split()
@@ -1336,7 +1336,7 @@ def _detect_ebay_csv(raw: str):
     """
     eBay exports are not consistent: the orders report can include blank preamble rows
     before the actual header. Return (kind, headers, data_rows), where kind is
-    "active", "orders", or "expenses".
+    "active", "orders", "expenses", or "transactions".
     """
     parsed = list(csv.reader(io.StringIO(raw)))
     for idx, row in enumerate(parsed):
@@ -1348,6 +1348,8 @@ def _detect_ebay_csv(raw: str):
             return "orders", headers, parsed[idx + 1:]
         if {"Expense date", "Expense grouping", "Expense category", "Expense type", "Order number", "Net expense"}.issubset(header_set):
             return "expenses", headers, parsed[idx + 1:]
+        if {"Transaction creation date", "Type", "Order number", "Net amount", "Item title", "Gross transaction amount"}.issubset(header_set):
+            return "transactions", headers, parsed[idx + 1:]
     return None, [], []
 
 
@@ -1381,6 +1383,7 @@ def _apply_note_financial_tags(item: Item):
         ("shipping", ("eBayActualShipping",)),
         ("ebay_fee", ("eBayFee", "eBayCollectedCharges")),
         ("ad_fee", ("eBayAdFee",)),
+        ("refund_amount", ("eBayRefund",)),
     ]
     for field, tags in tag_fields:
         if getattr(item, field) is not None:
@@ -1453,6 +1456,135 @@ def _expense_bucket(row: dict):
     return None
 
 
+_EBAY_TRANSACTION_FEE_COLUMNS = [
+    "Final Value Fee - fixed",
+    "Final Value Fee - variable",
+    "Regulatory operating fee",
+    'Very high "item not as described" fee',
+    "Below standard performance fee",
+    "International fee",
+    "Charity donation",
+    "Deposit processing fee",
+]
+
+
+def _transaction_fee_delta(row: dict) -> float:
+    """
+    Transaction reports show fees as negative numbers and fee credits as positive
+    numbers. Store a net positive eBay fee cost for the item.
+    """
+    fee_cost = 0.0
+    for column in _EBAY_TRANSACTION_FEE_COLUMNS:
+        amount = parse_float(row.get(column))
+        if amount is None:
+            continue
+        if amount < 0:
+            fee_cost += abs(amount)
+        elif amount > 0:
+            fee_cost -= amount
+    return fee_cost
+
+
+def _transaction_rows_by_order(rows: list[dict]) -> dict:
+    grouped = {}
+
+    for row in rows:
+        order_number = (row.get("Order number") or row.get("Legacy order ID") or "").strip()
+        if not order_number or order_number == "--":
+            continue
+
+        transaction_type = (row.get("Type") or "").strip().lower()
+        if transaction_type in {"hold", "payout", "transfer", "secondary payout", "reserve", "withheld tax"}:
+            continue
+
+        values = grouped.setdefault(order_number, {
+            "order_number": order_number,
+            "platform": "eBay",
+            "price": None,
+            "buyer_paid_amount": None,
+            "sale_date": None,
+            "date_shipped": None,
+            "date_returned": None,
+            "ebay_item_number": "",
+            "ebay_item_url": "",
+            "custom_sku": "",
+            "title": "",
+            "shipping_cost": 0.0,
+            "ebay_fee": 0.0,
+            "ad_fee": 0.0,
+            "refund_amount": 0.0,
+            "returned": False,
+            "return_reference_id": "",
+            "tracking_number": "",
+            "transaction_types": set(),
+        })
+        values["transaction_types"].add(transaction_type or "unknown")
+
+        transaction_date = _parse_ebay_date(row.get("Transaction creation date") or "")
+        item_id = (row.get("Item ID") or "").strip()
+        title = (row.get("Item title") or "").strip()
+        custom_sku = (row.get("Custom label") or "").strip()
+        reference_id = (row.get("Reference ID") or "").strip()
+        description = (row.get("Description") or "").strip()
+
+        if item_id and item_id != "--" and not values["ebay_item_number"]:
+            values["ebay_item_number"] = item_id
+            values["ebay_item_url"] = _ebay_item_url(item_id)
+        if title and title != "--" and not values["title"]:
+            values["title"] = title
+        if custom_sku and not values["custom_sku"] and custom_sku != "--":
+            values["custom_sku"] = custom_sku
+
+        values["ebay_fee"] += _transaction_fee_delta(row)
+
+        if transaction_type == "order":
+            item_subtotal = parse_float(row.get("Item subtotal"))
+            shipping_paid = parse_float(row.get("Shipping and handling")) or 0.0
+            gross_amount = parse_float(row.get("Gross transaction amount"))
+            if item_subtotal is not None:
+                values["price"] = item_subtotal
+                values["buyer_paid_amount"] = item_subtotal + shipping_paid
+            elif gross_amount is not None:
+                values["price"] = abs(gross_amount)
+                values["buyer_paid_amount"] = abs(gross_amount)
+            values["sale_date"] = values["sale_date"] or transaction_date
+        elif transaction_type == "shipping label":
+            amount = parse_float(row.get("Net amount")) or parse_float(row.get("Gross transaction amount"))
+            if amount is not None:
+                values["shipping_cost"] += abs(amount)
+            values["date_shipped"] = values["date_shipped"] or transaction_date
+            if reference_id.lower().startswith("tracking no."):
+                values["tracking_number"] = reference_id.split("Tracking no.", 1)[-1].strip()
+        elif transaction_type == "other fee":
+            amount = parse_float(row.get("Net amount")) or parse_float(row.get("Gross transaction amount"))
+            if amount is None:
+                continue
+            if "promoted listings" in description.lower():
+                values["ad_fee"] += abs(amount)
+            else:
+                values["ebay_fee"] += abs(amount)
+        elif transaction_type in {"refund", "claim", "payment dispute", "adjustment"}:
+            gross_amount = parse_float(row.get("Gross transaction amount"))
+            net_amount = parse_float(row.get("Net amount"))
+            refund_amount = gross_amount if gross_amount is not None else net_amount
+            if refund_amount is not None and refund_amount < 0:
+                values["refund_amount"] += abs(refund_amount)
+                values["returned"] = True
+                values["date_returned"] = values["date_returned"] or transaction_date
+                if reference_id and not values["return_reference_id"]:
+                    values["return_reference_id"] = reference_id
+
+    for values in grouped.values():
+        values["ebay_fee"] = max(0.0, values["ebay_fee"])
+        for key in ("shipping_cost", "ebay_fee", "ad_fee", "refund_amount"):
+            values[key] = round(values[key], 2)
+            if values[key] == 0:
+                values[key] = None
+        values["transaction_types"] = ", ".join(sorted(values["transaction_types"]))
+
+    return grouped
+
+
 def _safe_return_url(value: str):
     value = (value or "").strip()
     if value.startswith("/") and not value.startswith("//"):
@@ -1479,6 +1611,10 @@ def _copy_missing_item_fields(target: Item, source: Item):
         "ebay_fee",
         "shipping",
         "buyer_paid_amount",
+        "refund_amount",
+        "returned",
+        "return_reference_id",
+        "date_returned",
         "date_listed",
         "date_sold",
         "date_shipped",
@@ -1572,9 +1708,38 @@ def _set_if_changed(item: Item, field: str, value):
 
 def _import_change_preview(item: Item, report_kind: str, values: dict):
     if item is None:
-        return ["Create new item"] if report_kind != "expenses" else []
+        return ["Create new item"] if report_kind not in {"expenses", "transactions"} else []
 
     changes = []
+    if report_kind == "transactions":
+        for field, label, key in [
+            ("shipping", "Actual shipping", "shipping_cost"),
+            ("ebay_fee", "eBay fee", "ebay_fee"),
+            ("ad_fee", "Ad fee", "ad_fee"),
+            ("sale_price", "Sale price", "price"),
+            ("buyer_paid_amount", "Buyer paid before tax", "buyer_paid_amount"),
+            ("refund_amount", "Refund amount", "refund_amount"),
+            ("date_returned", "Return date", "date_returned"),
+            ("return_reference_id", "Return reference", "return_reference_id"),
+            ("tracking_number", "Tracking #", "tracking_number"),
+            ("date_shipped", "Date shipped", "date_shipped"),
+            ("ebay_order_number", "eBay order #", "order_number"),
+            ("ebay_item_number", "eBay item #", "ebay_item_number"),
+        ]:
+            change = _preview_fill_if_missing(item, field, label, values.get(key))
+            if change:
+                changes.append(change)
+            change = _preview_update_if_changed(item, field, label, values.get(key))
+            if change:
+                changes.append(change)
+        if values.get("returned") and not item.returned:
+            changes.append("Mark refunded/returned")
+        if not item.sold:
+            changes.append("Mark sold -> Sold Review")
+        if item.sold_confirmed and changes:
+            changes.append("Move confirmed sold -> Sold Review")
+        return changes
+
     if report_kind == "expenses":
         change = _preview_fill_if_missing(item, "shipping", "Actual shipping", values.get("shipping_cost"))
         if change:
@@ -1723,6 +1888,14 @@ def create_app():
                 _sqlite_add_column("items", "ebay_category", "VARCHAR(160)")
             if not _sqlite_column_exists("items", "ebay_condition"):
                 _sqlite_add_column("items", "ebay_condition", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "refund_amount"):
+                _sqlite_add_column("items", "refund_amount", "FLOAT")
+            if not _sqlite_column_exists("items", "returned"):
+                _sqlite_add_column("items", "returned", "BOOLEAN DEFAULT 0 NOT NULL")
+            if not _sqlite_column_exists("items", "date_returned"):
+                _sqlite_add_column("items", "date_returned", "DATE")
+            if not _sqlite_column_exists("items", "return_reference_id"):
+                _sqlite_add_column("items", "return_reference_id", "VARCHAR(120)")
 
     @app.context_processor
     def inject_estimator_defaults():
@@ -1830,14 +2003,18 @@ def create_app():
             "shipping",
             "ad_fee",
             "ebay_fee",
+            "refund_amount",
             "sold",
             "sold_confirmed",
             "pending_shipping",
             "canceled",
+            "returned",
             "date_listed",
             "date_sold",
+            "date_returned",
             "date_shipped",
             "tracking_number",
+            "return_reference_id",
             "notes",
             "image_filenames",
         ])
@@ -1869,14 +2046,18 @@ def create_app():
                 it.shipping if it.shipping is not None else "",
                 it.ad_fee if it.ad_fee is not None else "",
                 it.ebay_fee if it.ebay_fee is not None else "",
+                it.refund_amount if it.refund_amount is not None else "",
                 "Y" if getattr(it, "sold", False) else "N",
                 "Y" if getattr(it, "sold_confirmed", False) else "N",
                 "Y" if getattr(it, "pending_shipping", False) else "N",
                 "Y" if getattr(it, "canceled", False) else "N",
+                "Y" if getattr(it, "returned", False) else "N",
                 it.date_listed.isoformat() if it.date_listed else "",
                 it.date_sold.isoformat() if it.date_sold else "",
+                it.date_returned.isoformat() if it.date_returned else "",
                 it.date_shipped.isoformat() if it.date_shipped else "",
                 it.tracking_number or "",
+                it.return_reference_id or "",
                 (it.notes or "").replace("\r", " ").replace("\n", " ").strip(),
                 image_names,
             ])
@@ -1909,7 +2090,7 @@ def create_app():
             return redirect(url_for("import_ebay"))
 
         file_payloads = []
-        kind_order = {"active": 0, "orders": 1, "expenses": 2}
+        kind_order = {"active": 0, "orders": 1, "expenses": 2, "transactions": 3}
         for idx, upload in enumerate(uploaded_files):
             try:
                 raw = upload.read().decode("utf-8", errors="replace")
@@ -1919,7 +2100,7 @@ def create_app():
 
             report_kind, parsed_rows = _iter_ebay_rows(raw)
             if not report_kind:
-                flash(f"{upload.filename} does not look like an eBay active listings, orders, or expenses CSV.", "error")
+                flash(f"{upload.filename} does not look like an eBay active listings, orders, expenses, or transaction CSV.", "error")
                 return redirect(url_for("import_ebay"))
 
             file_payloads.append({
@@ -1957,6 +2138,73 @@ def create_app():
             report_kind = file_payload["kind"]
             report_name = file_payload["name"]
             _, parsed_rows = _iter_ebay_rows(file_payload["raw"])
+
+            if report_kind == "transactions":
+                grouped = _transaction_rows_by_order(parsed_rows)
+                for order_number, values in sorted(grouped.items()):
+                    item = existing_by_order.get(order_number)
+                    best = None
+                    best_score = 0.0
+                    match_reason = ""
+                    title = values.get("title") or f"eBay transaction {order_number}"
+                    ebay_item_number = values.get("ebay_item_number") or ""
+                    custom_sku = values.get("custom_sku") or ""
+
+                    if item:
+                        best = (item.sku, item.item_name)
+                        best_score = 1.0
+                        match_reason = "Same eBay order number"
+                    else:
+                        ntitle = _norm_title(title)
+                        for (eid, etitle, entitle, e_item_no, e_custom_label) in existing_norm:
+                            if ebay_item_number and e_item_no and ebay_item_number == e_item_no:
+                                best = (eid, etitle)
+                                best_score = 1.0
+                                match_reason = "Same eBay item number"
+                                break
+                            if custom_sku and e_custom_label and custom_sku == e_custom_label:
+                                best = (eid, etitle)
+                                best_score = 0.98
+                                match_reason = "Same eBay custom label"
+                                break
+                            if not entitle:
+                                continue
+                            score = _similar(ntitle, entitle)
+                            if score > best_score:
+                                best_score = score
+                                best = (eid, etitle)
+                                match_reason = "Similar title"
+                        item = existing_by_sku.get(best[0]) if best and best_score >= 0.86 else None
+
+                    flagged = item is not None
+                    expected_changes = _import_change_preview(item, "transactions", values)
+                    rows.append({
+                        "row_idx": global_idx,
+                        "file_name": report_name,
+                        "report_kind": report_kind,
+                        "title": title,
+                        "date_display": values.get("sale_date") or values.get("date_returned") or values.get("date_shipped"),
+                        "price": values.get("price") or 0.0,
+                        "custom_sku": custom_sku,
+                        "ebay_item_number": ebay_item_number,
+                        "order_number": order_number,
+                        "quantity": 1,
+                        "shipping_cost": values.get("shipping_cost"),
+                        "ebay_fee": values.get("ebay_fee"),
+                        "ad_fee": values.get("ad_fee"),
+                        "refund_amount": values.get("refund_amount"),
+                        "transaction_types": values.get("transaction_types"),
+                        "is_canceled_order": False,
+                        "flagged": flagged,
+                        "best_match_id": item.sku if item else (best[0] if best else None),
+                        "best_match_title": item.item_name if item else (best[1] if best else None),
+                        "best_score": round(best_score, 3) if best_score else None,
+                        "match_reason": match_reason,
+                        "expected_changes": expected_changes,
+                        "default_action": "update" if flagged and expected_changes else "skip",
+                    })
+                    global_idx += 1
+                continue
 
             if report_kind == "expenses":
                 grouped = {}
@@ -2110,7 +2358,7 @@ def create_app():
             {
                 "name": p["name"],
                 "kind": p["kind"],
-                "label": "Orders" if p["kind"] == "orders" else ("Expenses" if p["kind"] == "expenses" else "Active listings"),
+                "label": "Orders" if p["kind"] == "orders" else ("Expenses" if p["kind"] == "expenses" else ("Transactions" if p["kind"] == "transactions" else "Active listings")),
             }
             for p in file_payloads
         ]
@@ -2308,8 +2556,80 @@ def create_app():
             if not report_kind:
                 continue
 
-            if report_kind in ("orders", "expenses"):
+            if report_kind in ("orders", "expenses", "transactions"):
                 saw_orders_or_expenses = True
+
+            if report_kind == "transactions":
+                grouped = _transaction_rows_by_order(parsed_rows)
+                for order_number, values in sorted(grouped.items()):
+                    decision = request.form.get(f"decision_{action_idx}", "skip")
+                    match_id = request.form.get(f"matchid_{action_idx}")
+                    action_idx += 1
+                    if decision == "skip":
+                        skipped += 1
+                        continue
+
+                    item = Item.query.get(int(match_id)) if match_id else None
+                    if not item:
+                        skipped += 1
+                        continue
+
+                    changed = False
+                    changed = _set_if_missing(item, "platform", "eBay") or changed
+                    changed = _set_if_missing(item, "sale_price", values.get("price")) or changed
+                    changed = _set_if_changed(item, "sale_price", values.get("price")) or changed
+                    changed = _set_if_missing(item, "buyer_paid_amount", values.get("buyer_paid_amount")) or changed
+                    changed = _set_if_changed(item, "buyer_paid_amount", values.get("buyer_paid_amount")) or changed
+                    changed = _set_if_missing(item, "shipping", values.get("shipping_cost")) or changed
+                    changed = _set_if_changed(item, "shipping", values.get("shipping_cost")) or changed
+                    changed = _set_if_missing(item, "ebay_fee", values.get("ebay_fee")) or changed
+                    changed = _set_if_changed(item, "ebay_fee", values.get("ebay_fee")) or changed
+                    changed = _set_if_missing(item, "ad_fee", values.get("ad_fee")) or changed
+                    changed = _set_if_changed(item, "ad_fee", values.get("ad_fee")) or changed
+                    changed = _set_if_missing(item, "refund_amount", values.get("refund_amount")) or changed
+                    changed = _set_if_changed(item, "refund_amount", values.get("refund_amount")) or changed
+                    changed = _set_if_missing(item, "date_sold", values.get("sale_date")) or changed
+                    changed = _set_if_missing(item, "date_shipped", values.get("date_shipped")) or changed
+                    changed = _set_if_missing(item, "tracking_number", values.get("tracking_number")) or changed
+                    changed = _set_if_missing(item, "date_returned", values.get("date_returned")) or changed
+                    changed = _set_if_missing(item, "return_reference_id", values.get("return_reference_id")) or changed
+                    changed = _set_if_missing(item, "ebay_order_number", order_number) or changed
+                    changed = _set_if_missing(item, "ebay_item_number", values.get("ebay_item_number")) or changed
+                    changed = _set_if_missing(item, "ebay_item_url", values.get("ebay_item_url")) or changed
+                    changed = _set_if_missing(item, "ebay_custom_label", values.get("custom_sku")) or changed
+
+                    if values.get("returned") and not item.returned:
+                        item.returned = True
+                        changed = True
+                    if not item.sold:
+                        item.sold = True
+                        changed = True
+                    if item.canceled:
+                        item.canceled = False
+                        changed = True
+                    if item.tracking_number or item.date_shipped:
+                        if item.pending_shipping:
+                            item.pending_shipping = False
+                            changed = True
+                    if changed and item.sold_confirmed:
+                        item.sold_confirmed = False
+
+                    if changed:
+                        _append_note_tag(item, f"eBayTransactionReport:{order_number}")
+                        if values.get("shipping_cost") is not None:
+                            _append_note_tag(item, f"eBayActualShipping:{values['shipping_cost']:.2f}")
+                        if values.get("ebay_fee") is not None:
+                            _append_note_tag(item, f"eBayFee:{values['ebay_fee']:.2f}")
+                        if values.get("ad_fee") is not None:
+                            _append_note_tag(item, f"eBayAdFee:{values['ad_fee']:.2f}")
+                        if values.get("refund_amount") is not None:
+                            _append_note_tag(item, f"eBayRefund:{values['refund_amount']:.2f}")
+                        if values.get("return_reference_id"):
+                            _append_note_tag(item, f"eBayReturnReference:{values['return_reference_id']}")
+                        updated += 1
+                    else:
+                        skipped += 1
+                continue
 
             if report_kind == "expenses":
                 grouped = {}
@@ -3146,6 +3466,7 @@ def create_app():
 
         profit_sort_expr = (
             func.coalesce(Item.buyer_paid_amount, Item.sale_price, 0) -
+            func.coalesce(Item.refund_amount, 0) -
             func.coalesce(Item.cog, 0) -
             func.coalesce(Item.shipping, 0) -
             func.coalesce(Item.ad_fee, 0) -
@@ -3399,6 +3720,7 @@ def create_app():
 
         profit_expr = (
             nz(Item.buyer_paid_amount)
+            - nz(Item.refund_amount)
             - (nz(Item.cog) + nz(Item.shipping) + nz(Item.ad_fee) + nz(Item.ebay_fee))
         )
 
@@ -4094,14 +4416,18 @@ def create_app():
             item.ebay_fee = parse_float(request.form.get("ebay_fee"))
             item.shipping = parse_float(request.form.get("shipping"))
             item.buyer_paid_amount = parse_float(request.form.get("buyer_paid_amount"))
+            item.refund_amount = parse_float(request.form.get("refund_amount"))
 
             item.date_listed = parse_date(request.form.get("date_listed"))
             item.date_sold = parse_date(request.form.get("date_sold"))
+            item.date_returned = parse_date(request.form.get("date_returned"))
             item.date_shipped = parse_date(request.form.get("date_shipped"))
             item.tracking_number = request.form.get("tracking_number", "").strip() or None
+            item.return_reference_id = request.form.get("return_reference_id", "").strip() or None
             item.sold = (request.form.get("sold") == "Y")
             item.pending_shipping = (request.form.get("pending_shipping") == "Y")
             item.canceled = (request.form.get("canceled") == "Y")
+            item.returned = (request.form.get("returned") == "Y")
             if item.canceled:
                 item.sold = False
                 item.sold_confirmed = False

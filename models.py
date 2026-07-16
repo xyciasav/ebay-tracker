@@ -36,15 +36,19 @@ class Item(db.Model):
     ebay_fee = db.Column(db.Float, nullable=True)
     shipping = db.Column(db.Float, nullable=True)
     buyer_paid_amount = db.Column(db.Float, nullable=True)
+    refund_amount = db.Column(db.Float, nullable=True)
 
     date_listed = db.Column(db.Date, nullable=True)
     date_sold = db.Column(db.Date, nullable=True)
+    date_returned = db.Column(db.Date, nullable=True)
     date_shipped = db.Column(db.Date, nullable=True)
     sold = db.Column(db.Boolean, default=False, nullable=False)
     sold_confirmed = db.Column(db.Boolean, default=False, nullable=False)
     pending_shipping = db.Column(db.Boolean, default=False, nullable=False)
     canceled = db.Column(db.Boolean, default=False, nullable=False)
+    returned = db.Column(db.Boolean, default=False, nullable=False)
     tracking_number = db.Column(db.String(120), nullable=True)
+    return_reference_id = db.Column(db.String(120), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -63,10 +67,10 @@ class Item(db.Model):
     @property
     def profit(self) -> float:
         """
-        Profit = buyer_paid_amount - (cog + shipping + ad_fee + ebay_fee)
+        Profit = buyer_paid_amount - refund_amount - (cog + shipping + ad_fee + ebay_fee)
         Uses 0.0 for missing values.
         """
-        return self._n(self.buyer_paid_amount) - self.net_cost
+        return self._n(self.buyer_paid_amount) - self._n(self.refund_amount) - self.net_cost
 
 
 class ItemImage(db.Model):

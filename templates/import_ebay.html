@@ -5,8 +5,8 @@
 <div class="card">
   <h2 style="margin:0 0 8px 0;">Import eBay CSV</h2>
   <div class="small">
-    Upload an eBay <b>All active listings</b>, <b>All orders</b>, or <b>Expenses</b> report.
-    Active listings add/update inventory; orders send items to Sold Review; expenses fill actual shipping costs.
+    Upload an eBay <b>All active listings</b>, <b>All orders</b>, <b>Expenses</b>, or <b>Transaction</b> report.
+    Active listings add/update inventory; orders send items to Sold Review; expenses/transactions fill actual costs, fees, and refunds.
   </div>
 
   {% if step == "upload" %}
@@ -17,7 +17,7 @@
       <div style="min-width:280px; flex:1;">
         <label>eBay CSV files</label>
         <input type="file" name="files" accept=".csv,text/csv" multiple required />
-        <div class="small">You can select active listings, orders, and expenses at the same time.</div>
+        <div class="small">You can select active listings, orders, expenses, and transaction reports at the same time.</div>
       </div>
       <button type="submit" class="btn">Upload & Preview</button>
       <a class="btn secondary" href="{{ url_for('index') }}">Cancel</a>
@@ -35,6 +35,10 @@
       <div class="card">
         <b>Expenses</b>
         <div class="small">Pulls shipping label costs by order number and updates actual shipping cost only.</div>
+      </div>
+      <div class="card">
+        <b>Transactions</b>
+        <div class="small">Pulls actual shipping, net eBay fees, ad fees, refunds/returns, and tracking by order number.</div>
       </div>
     </div>
 
@@ -56,7 +60,7 @@
             <span class="pill">{{ file.label }}: {{ file.name }}</span>
           {% endfor %}
         {% else %}
-          <b>{% if report_kind == "orders" %}Orders{% elif report_kind == "expenses" %}Expenses{% else %}Active listings{% endif %}</b>.
+          <b>{% if report_kind == "orders" %}Orders{% elif report_kind == "expenses" %}Expenses{% elif report_kind == "transactions" %}Transactions{% else %}Active listings{% endif %}</b>.
         {% endif %}
         Review the actions before importing.
       </div>
@@ -94,10 +98,10 @@
               <select name="decision_{{ r.row_idx }}" class="import-decision" data-has-match="{{ '1' if r.flagged else '0' }}" data-has-changes="{{ '1' if r.expected_changes else '0' }}">
                 {% if r.flagged %}
                   <option value="update" {% if r.default_action == "update" %}selected{% endif %}>Update</option>
-                  {% if row_kind != "expenses" and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
+                  {% if row_kind not in ["expenses", "transactions"] and not r.is_canceled_order %}<option value="create">Create</option>{% endif %}
                   <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% else %}
-                  {% if row_kind != "expenses" and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
+                  {% if row_kind not in ["expenses", "transactions"] and not r.is_canceled_order %}<option value="create" {% if r.default_action == "create" %}selected{% endif %}>Create</option>{% endif %}
                   <option value="skip" {% if r.default_action == "skip" %}selected{% endif %}>Skip</option>
                 {% endif %}
               </select>
@@ -108,8 +112,11 @@
               <td class="small"><span class="pill">{{ row_kind|title }}</span><br>{{ r.file_name }}</td>
             {% endif %}
             <td>
-              {% if row_kind == "expenses" %}
+              {% if row_kind in ["expenses", "transactions"] %}
                 Order {{ r.order_number }}
+                {% if row_kind == "transactions" and r.transaction_types %}
+                  <div class="small">{{ r.transaction_types }}</div>
+                {% endif %}
               {% else %}
                 {{ r.title }}
                 {% if r.is_canceled_order %}
@@ -122,10 +129,11 @@
             </td>
             <td>{{ r.ebay_item_number or "" }}</td>
             <td>
-              {% if row_kind == "expenses" %}
+              {% if row_kind in ["expenses", "transactions"] %}
                 {% if r.shipping_cost %}<div>Ship ${{ "%.2f"|format(r.shipping_cost) }}</div>{% endif %}
                 {% if r.ebay_fee %}<div>Fee ${{ "%.2f"|format(r.ebay_fee) }}</div>{% endif %}
                 {% if r.ad_fee %}<div>Ad ${{ "%.2f"|format(r.ad_fee) }}</div>{% endif %}
+                {% if r.refund_amount %}<div>Refund ${{ "%.2f"|format(r.refund_amount) }}</div>{% endif %}
               {% else %}
                 ${{ "%.2f"|format(r.price) }}
               {% endif %}
@@ -152,7 +160,7 @@
                 </ul>
               {% elif r.flagged %}
                 <span class="pill">No missing fields to fill</span>
-              {% elif row_kind == "expenses" %}
+              {% elif row_kind in ["expenses", "transactions"] %}
                 <span class="pill">No matching order</span>
               {% else %}
                 <span class="pill">New item if created</span>

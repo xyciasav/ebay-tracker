@@ -18,7 +18,7 @@
       <a class="btn secondary" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
     {% endif %}
     <a class="btn" href="{{ url_for('item_edit', sku=item.sku, return_to=return_to) }}">Edit</a>
-    {% if needs_sold_review %}
+    {% if needs_sold_review and not item.returned %}
       <form method="post" action="{{ url_for('item_confirm_sold', sku=item.sku) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="return_to" value="{{ return_to }}">
@@ -56,6 +56,8 @@
         <span class="small">SKU {{ item.sku }}</span>
         {% if item.canceled %}
           <span class="pill canceled">Canceled</span>
+        {% elif item.returned %}
+          <span class="pill canceled">Refunded</span>
         {% elif needs_sold_review %}
           <span class="pill review">Sold Review</span>
         {% elif item.pending_shipping %}
@@ -83,10 +85,15 @@
         <div><label>Sale Price</label><strong>{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}—{% endif %}</strong></div>
         <div><label>Buyer Paid Before Tax</label><strong>{% if item.buyer_paid_amount is not none %}${{ "%.2f"|format(item.buyer_paid_amount) }}{% else %}—{% endif %}</strong></div>
         <div><label>COG</label><strong>{% if item.cog is not none %}${{ "%.2f"|format(item.cog) }}{% else %}—{% endif %}</strong></div>
+        <div><label>Refund</label><strong>{% if item.refund_amount is not none %}${{ "%.2f"|format(item.refund_amount) }}{% else %}—{% endif %}</strong></div>
         <div><label>Profit</label><strong>${{ "%.2f"|format(item.profit) }}</strong></div>
       </div>
 
-      {% if needs_sold_review %}
+      {% if item.returned %}
+        <div class="flash warning" style="margin-top:12px;">
+          This item has a refund/return imported. Review refund amount, fee credits, shipping, and COG before treating it as final.
+        </div>
+      {% elif needs_sold_review %}
         <div class="flash warning" style="margin-top:12px;">
           Review COG, actual shipping, ad fee, eBay fee, and buyer-paid amount. Click Confirm Sold when this item is final.
         </div>
@@ -106,6 +113,9 @@
     <section class="card">
       <h3 style="margin-top:0;">Sale Details</h3>
       <div class="detail-grid">
+        <div><label>Refund Amount</label><div>{% if item.refund_amount is not none %}${{ "%.2f"|format(item.refund_amount) }}{% else %}—{% endif %}</div></div>
+        <div><label>Date Returned</label><div>{{ item.date_returned or "—" }}</div></div>
+        <div><label>Return Reference</label><div>{{ item.return_reference_id or "—" }}</div></div>
         <div><label>Actual Shipping Cost</label><div>{% if item.shipping is not none %}${{ "%.2f"|format(item.shipping) }}{% else %}—{% endif %}</div></div>
         <div><label>Ad Fee</label><div>{% if item.ad_fee is not none %}${{ "%.2f"|format(item.ad_fee) }}{% else %}—{% endif %}</div></div>
         <div><label>eBay Fee</label><div>{% if item.ebay_fee is not none %}${{ "%.2f"|format(item.ebay_fee) }}{% else %}—{% endif %}</div></div>
