@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Inventory — eBay Tracker{% endblock %}
+{% block title %}Inventory â€” eBay Tracker{% endblock %}
 
 {% block content %}
 <div class="page-hero">
@@ -138,7 +138,7 @@
 <div class="view-bar">
   <div class="small">
     {{ items|length }} item{{ '' if items|length == 1 else 's' }} shown
-    {% if needs_info %} · missing Photo, Cost, Price, or eBay{% endif %}
+    {% if needs_info %} Â· missing Photo, Cost, Price, or eBay{% endif %}
   </div>
   <div class="segmented">
     <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">Cards</a>
@@ -287,7 +287,7 @@
           {% if item.ebay_item_number or item.ebay_custom_label %}
             <div class="small ebay-line">
               {% if item.ebay_item_number %}#{{ item.ebay_item_number }}{% endif %}
-              {% if item.ebay_custom_label %} · {{ item.ebay_custom_label }}{% endif %}
+              {% if item.ebay_custom_label %} Â· {{ item.ebay_custom_label }}{% endif %}
             </div>
           {% endif %}
 

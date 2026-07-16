@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Reports — eBay Tracker{% endblock %}
+{% block title %}Reports â€” eBay Tracker{% endblock %}
 
 {% block content %}
 <style>
@@ -249,7 +249,7 @@
           </div>
         {% endfor %}
       </div>
-      <div class="small" style="margin-top:10px;">Operating costs: ${{ "%.2f"|format(kpis.operating_cost_total) }} · refunds: ${{ "%.2f"|format(kpis.refund_total) }}</div>
+      <div class="small" style="margin-top:10px;">Operating costs: ${{ "%.2f"|format(kpis.operating_cost_total) }} Â· refunds: ${{ "%.2f"|format(kpis.refund_total) }}</div>
     </div>
 
     <div class="card">
@@ -286,7 +286,7 @@
       {% if report_viz.profit_trend %}
         <div class="trend-chart">
           {% for r in report_viz.profit_trend %}
-            <div class="trend-col" title="{{ r.period }} · ${{ '%.2f'|format(r.profit) }} · {{ r.sold_count }} sold">
+            <div class="trend-col" title="{{ r.period }} Â· ${{ '%.2f'|format(r.profit) }} Â· {{ r.sold_count }} sold">
               <div class="trend-bar {% if r.profit < 0 %}negative{% endif %}" style="height: {{ r.height }}%;"></div>
               <div class="trend-label">{% if r.show_label %}{{ r.label }}{% endif %}</div>
             </div>
@@ -352,8 +352,8 @@
       <div class="action-list">
         {% for r in returned_attention %}
           <div class="action-item">
-            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-            <div class="small">Returned {{ r.date_returned or "date unknown" }} · refund ${{ "%.2f"|format(r.refund_amount) }} · current profit <span class="{% if r.profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</span></div>
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} â€” {{ r.item_name }}</a>
+            <div class="small">Returned {{ r.date_returned or "date unknown" }} Â· refund ${{ "%.2f"|format(r.refund_amount) }} Â· current profit <span class="{% if r.profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(r.profit) }}</span></div>
             {% if r.return_reference_id %}
               <div class="small">Ref {{ r.return_reference_id }}</div>
             {% endif %}
@@ -375,8 +375,8 @@
       <div class="action-list">
         {% for r in sold_review_attention %}
           <div class="action-item">
-            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-            <div class="small">Sold {{ r.date_sold or "date unknown" }} · current profit ${{ "%.2f"|format(r.profit) }}</div>
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} â€” {{ r.item_name }}</a>
+            <div class="small">Sold {{ r.date_sold or "date unknown" }} Â· current profit ${{ "%.2f"|format(r.profit) }}</div>
             {% if r.missing %}
               <div class="missing-tags">{% for m in r.missing %}<span>{{ m }}</span>{% endfor %}</div>
             {% endif %}
@@ -397,14 +397,14 @@
       <div class="action-list">
         {% for r in aged_unsold[:6] %}
           <div class="action-item">
-            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-            <div class="small">{{ r.days_listed }} days listed · ${{ "%.2f"|format(r.sale_price) }} · {% if r.listed %}Listed{% else %}Not listed{% endif %}</div>
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} â€” {{ r.item_name }}</a>
+            <div class="small">{{ r.days_listed }} days listed Â· ${{ "%.2f"|format(r.sale_price) }} Â· {% if r.listed %}Listed{% else %}Not listed{% endif %}</div>
           </div>
         {% endfor %}
         {% for r in negative_profit[:6] %}
           <div class="action-item">
-            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} — {{ r.item_name }}</a>
-            <div class="small">Loss review · sold {{ r.date_sold or "date unknown" }} · <span class="money-negative">${{ "%.2f"|format(r.profit) }}</span></div>
+            <a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }} â€” {{ r.item_name }}</a>
+            <div class="small">Loss review Â· sold {{ r.date_sold or "date unknown" }} Â· <span class="money-negative">${{ "%.2f"|format(r.profit) }}</span></div>
           </div>
         {% else %}
           {% if not aged_unsold %}
@@ -469,7 +469,7 @@
                 {% if r.thumb_url %}
                   <img class="thumb" src="{{ r.thumb_url }}" alt="thumb" loading="lazy">
                 {% else %}
-                  <div class="thumb" style="display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.6;">—</div>
+                  <div class="thumb" style="display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.6;">â€”</div>
                 {% endif %}
               </td>
               <td><a href="{{ url_for('item_detail', sku=r.sku, return_to=request.full_path) }}">SKU {{ r.sku }}</a><div class="small">{{ r.item_name }}</div></td>
