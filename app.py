@@ -3807,11 +3807,39 @@ def create_app():
             (Item.canceled.is_(False)) &
             ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
         )
+        buyer_shipping_paid_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) & (Item.sale_price.isnot(None)),
+                func.coalesce(Item.buyer_paid_amount, 0.0) - func.coalesce(Item.sale_price, 0.0),
+            ),
+            else_=0.0,
+        )
+        shipping_shortfall_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) &
+                (Item.sale_price.isnot(None)) &
+                (func.coalesce(Item.shipping, 0.0) > buyer_shipping_paid_expr),
+                func.coalesce(Item.shipping, 0.0) - buyer_shipping_paid_expr,
+            ),
+            else_=0.0,
+        )
+        shipping_shortfall_count_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) &
+                (Item.sale_price.isnot(None)) &
+                (func.coalesce(Item.shipping, 0.0) > buyer_shipping_paid_expr),
+                1,
+            ),
+            else_=0,
+        )
         financial_totals_q = (
             db.session.query(
                 func.coalesce(func.sum(Item.buyer_paid_amount), 0.0).label("gross_sales"),
+                func.coalesce(func.sum(buyer_shipping_paid_expr), 0.0).label("buyer_shipping_paid"),
                 func.coalesce(func.sum(Item.cog), 0.0).label("cog"),
                 func.coalesce(func.sum(Item.shipping), 0.0).label("shipping"),
+                func.coalesce(func.sum(shipping_shortfall_expr), 0.0).label("shipping_shortfall"),
+                func.coalesce(func.sum(shipping_shortfall_count_expr), 0).label("shipping_shortfall_count"),
                 func.coalesce(func.sum(Item.ebay_fee), 0.0).label("ebay_fee"),
                 func.coalesce(func.sum(Item.ad_fee), 0.0).label("ad_fee"),
             )
@@ -3821,8 +3849,13 @@ def create_app():
             financial_totals_q = financial_totals_q.filter(*sold_date_filters)
         financial_totals_row = financial_totals_q.one()
         gross_sales_total = float(financial_totals_row.gross_sales or 0.0)
+        buyer_shipping_paid_total = float(financial_totals_row.buyer_shipping_paid or 0.0)
         cog_total = float(financial_totals_row.cog or 0.0)
         shipping_total = float(financial_totals_row.shipping or 0.0)
+        shipping_shortfall_total = float(financial_totals_row.shipping_shortfall or 0.0)
+        shipping_shortfall_count = int(financial_totals_row.shipping_shortfall_count or 0)
+        shipping_net_total = buyer_shipping_paid_total - shipping_total
+        shipping_recovery_pct = (buyer_shipping_paid_total / shipping_total * 100.0) if shipping_total else 0.0
         ebay_fee_total = float(financial_totals_row.ebay_fee or 0.0)
         ad_fee_total = float(financial_totals_row.ad_fee or 0.0)
         operating_cost_total = cog_total + shipping_total + ebay_fee_total + ad_fee_total
@@ -4274,6 +4307,11 @@ def create_app():
             "net_sales_total": net_sales_total,
             "cog_total": cog_total,
             "shipping_total": shipping_total,
+            "buyer_shipping_paid_total": buyer_shipping_paid_total,
+            "shipping_net_total": shipping_net_total,
+            "shipping_shortfall_total": shipping_shortfall_total,
+            "shipping_shortfall_count": shipping_shortfall_count,
+            "shipping_recovery_pct": shipping_recovery_pct,
             "ebay_fee_total": ebay_fee_total,
             "ad_fee_total": ad_fee_total,
             "operating_cost_total": operating_cost_total,
