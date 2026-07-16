@@ -74,6 +74,29 @@
     a { color: var(--link); }
     a:visited { color: var(--linkVisited); }
 
+    .brand-link{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      color:var(--text);
+      text-decoration:none;
+      font-weight:800;
+      letter-spacing:-.02em;
+    }
+    .brand-mark{
+      width:30px;
+      height:30px;
+      border-radius:10px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--success) 55%, var(--accent)));
+      color:#fff;
+      font-size:13px;
+      box-shadow:0 8px 22px rgba(37, 99, 235, .18);
+      flex:0 0 auto;
+    }
+
     .wrap { max-width:1200px; margin:0 auto; padding:16px; }
 
     .card {
@@ -198,25 +221,26 @@
     }
     .status-tabs{
       display:grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap:10px;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap:8px;
       margin-bottom:14px;
     }
     .status-tab{
       background:var(--card);
       border:1px solid var(--border);
       border-radius:14px;
-      padding:12px;
+      padding:10px 9px;
       color:var(--text);
       text-decoration:none;
       display:flex;
       justify-content:space-between;
       align-items:center;
-      gap:10px;
+      gap:8px;
+      min-width:0;
     }
-    .status-tab span{ white-space:nowrap; }
+    .status-tab span{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-size:13px; }
     .status-tab:visited{ color:var(--text); }
-    .status-tab b{ font-size:22px; }
+    .status-tab b{ font-size:20px; }
     .status-tab.active{
       border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
       box-shadow: 0 10px 30px rgba(37, 99, 235, .10);
@@ -224,7 +248,7 @@
     .filter-card{ margin-bottom:14px; }
     .filter-grid{
       display:grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(140px, 190px) minmax(140px, 190px) minmax(160px, 220px) auto;
+      grid-template-columns: minmax(180px, 1fr) minmax(110px, 135px) minmax(125px, 155px) minmax(140px, 180px) minmax(210px, 255px) auto;
       gap:10px;
       align-items:end;
     }
@@ -232,6 +256,7 @@
       display:flex;
       gap:10px;
       align-items:center;
+      white-space:nowrap;
     }
     .bulk-panel summary{
       display:flex;
@@ -255,7 +280,7 @@
       margin-right:2px;
       font-weight:800;
     }
-    .bulk-panel[open] summary::before{ content:"–"; }
+    .bulk-panel[open] summary::before{ content:"-"; }
     .view-bar{
       display:flex;
       justify-content:space-between;
@@ -510,9 +535,14 @@
       .item-hero-photo{ max-height:320px; }
     }
     @media (max-width: 880px){
+      .status-tabs{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .filter-grid{ grid-template-columns: 1fr 1fr; }
       .filter-actions{ grid-column: 1 / -1; }
       .page-hero{ flex-direction:column; }
+    }
+    @media (min-width: 881px) and (max-width: 1120px){
+      .status-tabs{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .filter-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
   </style>
 </head>
@@ -520,15 +550,15 @@
 <body>
   <header>
     <div>
-      <a href="{{ url_for('index') }}"><strong>eBay Tracker</strong></a>
-      <span class="small">— lightweight inventory + profit</span>
+      <a class="brand-link" href="{{ url_for('index') }}"><span class="brand-mark">ET</span><span>eBay Tracker</span></a>
+      <span class="small">&mdash; lightweight inventory + profit</span>
     </div>
 
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
       <a class="btn secondary" href="{{ url_for('index') }}">Inventory</a>
       <a class="btn secondary" href="{{ url_for('reports') }}">Reports</a>
       
-      <button class="iconbtn" type="button" id="themeBtn" title="Toggle dark mode">🌓</button>
+      <button class="iconbtn" type="button" id="themeBtn" title="Toggle dark mode">Dark</button>
     </div>
   </header>
 
@@ -585,7 +615,7 @@
     }
 
     $("barcodeScannerWrap").style.display = "block";
-    setStatus("Starting camera…");
+    setStatus("Starting camera...");
 
     try {
       scanning = true;
@@ -602,7 +632,7 @@
         return;
       }
 
-      setStatus("Point at barcode…");
+      setStatus("Point at barcode...");
 
       // decodeFromVideoDevice renders into your <video>
       codeReader.decodeFromVideoDevice(deviceId, "barcodeVideo", (result, err) => {
@@ -614,7 +644,7 @@
           const cq = $("compsQuery");
           if (cq && !cq.value.trim()) cq.value = text;
 
-          setStatus("Scanned ✓ " + text);
+          setStatus("Scanned OK " + text);
           stopBarcodeScan(); // auto-close after success
         }
       });
