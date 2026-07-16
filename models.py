@@ -67,10 +67,12 @@ class Item(db.Model):
     @property
     def profit(self) -> float:
         """
-        Profit = buyer_paid_amount - refund_amount - (cog + shipping + ad_fee + ebay_fee)
-        Uses 0.0 for missing values.
+        Profit = revenue - refund_amount - (cog + shipping + ad_fee + ebay_fee).
+        Revenue uses buyer_paid_amount when present, since that includes buyer-paid
+        shipping before tax. If buyer_paid_amount is missing, fall back to sale_price.
         """
-        return self._n(self.buyer_paid_amount) - self._n(self.refund_amount) - self.net_cost
+        revenue = self._n(self.buyer_paid_amount if self.buyer_paid_amount is not None else self.sale_price)
+        return revenue - self._n(self.refund_amount) - self.net_cost
 
 
 class ItemImage(db.Model):

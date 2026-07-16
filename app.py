@@ -3726,8 +3726,30 @@ def create_app():
         def nz(col):
             return func.coalesce(col, 0.0)
 
+        buyer_shipping_paid_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) & (Item.sale_price.isnot(None)),
+                func.coalesce(Item.buyer_paid_amount, 0.0) - func.coalesce(Item.sale_price, 0.0),
+            ),
+            else_=0.0,
+        )
+        report_revenue_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) & (Item.sale_price.isnot(None)),
+                func.coalesce(Item.sale_price, 0.0) + buyer_shipping_paid_expr,
+            ),
+            (
+                Item.buyer_paid_amount.isnot(None),
+                func.coalesce(Item.buyer_paid_amount, 0.0),
+            ),
+            (
+                Item.sale_price.isnot(None),
+                func.coalesce(Item.sale_price, 0.0),
+            ),
+            else_=0.0,
+        )
         profit_expr = (
-            nz(Item.buyer_paid_amount)
+            report_revenue_expr
             - nz(Item.refund_amount)
             - (nz(Item.cog) + nz(Item.shipping) + nz(Item.ad_fee) + nz(Item.ebay_fee))
         )
@@ -3807,13 +3829,6 @@ def create_app():
             (Item.canceled.is_(False)) &
             ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
         )
-        buyer_shipping_paid_expr = case(
-            (
-                (Item.buyer_paid_amount.isnot(None)) & (Item.sale_price.isnot(None)),
-                func.coalesce(Item.buyer_paid_amount, 0.0) - func.coalesce(Item.sale_price, 0.0),
-            ),
-            else_=0.0,
-        )
         shipping_shortfall_expr = case(
             (
                 (Item.buyer_paid_amount.isnot(None)) &
@@ -3834,7 +3849,7 @@ def create_app():
         )
         financial_totals_q = (
             db.session.query(
-                func.coalesce(func.sum(Item.buyer_paid_amount), 0.0).label("gross_sales"),
+                func.coalesce(func.sum(report_revenue_expr), 0.0).label("gross_sales"),
                 func.coalesce(func.sum(buyer_shipping_paid_expr), 0.0).label("buyer_shipping_paid"),
                 func.coalesce(func.sum(Item.cog), 0.0).label("cog"),
                 func.coalesce(func.sum(Item.shipping), 0.0).label("shipping"),
@@ -4090,7 +4105,7 @@ def create_app():
             db.session.query(
                 trend_period_expr.label("period"),
                 func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
-                func.coalesce(func.sum(Item.buyer_paid_amount), 0.0).label("gross_sales"),
+                func.coalesce(func.sum(report_revenue_expr), 0.0).label("gross_sales"),
                 func.coalesce(func.sum(Item.shipping), 0.0).label("shipping"),
                 func.coalesce(func.sum(Item.ebay_fee), 0.0).label("ebay_fee"),
                 func.coalesce(func.sum(Item.ad_fee), 0.0).label("ad_fee"),
