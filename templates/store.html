@@ -188,7 +188,7 @@
         <h1>Dash of Joy Store</h1>
         <div class="tagline">Available eBay listings, collected in one simple browsing page.</div>
         {% if direct_discount_percent > 0 %}
-          <div class="tagline">Want to buy direct? Direct prices shown here are {{ "%.0f"|format(direct_discount_percent) }}% below the listed eBay price.</div>
+          <div class="tagline">Want to buy direct? Direct prices are usually {{ "%.0f"|format(direct_discount_percent) }}% below eBay, with occasional item-specific deals.</div>
         {% endif %}
       </div>
       <a class="btn secondary" href="https://www.ebay.com/usr/dashofjoy" target="_blank" rel="noopener noreferrer">View eBay Profile</a>
@@ -255,8 +255,8 @@
                 <div class="store-meta">
                   <div class="price-stack">
                     {% if item.direct_price is not none %}
-                      <div class="ebay-price">eBay ${{ "%.2f"|format(item.sale_price) }}</div>
-                      <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} <span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span></div>
+                      <div class="ebay-price">{% if item.sale_price is not none %}eBay ${{ "%.2f"|format(item.sale_price) }}{% else %}eBay price on listing{% endif %}</div>
+                      <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} {% if item.direct_discount_percent > 0 %}<span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span>{% elif item.direct_price_is_override %}<span class="discount-badge">direct</span>{% endif %}</div>
                     {% elif item.sale_price is not none %}
                       <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
                     {% else %}
@@ -300,8 +300,8 @@
             <div class="store-meta">
               <div class="price-stack">
                 {% if item.direct_price is not none %}
-                  <div class="ebay-price">eBay ${{ "%.2f"|format(item.sale_price) }}</div>
-                  <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} <span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span></div>
+                  <div class="ebay-price">{% if item.sale_price is not none %}eBay ${{ "%.2f"|format(item.sale_price) }}{% else %}eBay price on listing{% endif %}</div>
+                  <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} {% if item.direct_discount_percent > 0 %}<span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span>{% elif item.direct_price_is_override %}<span class="discount-badge">direct</span>{% endif %}</div>
                 {% elif item.sale_price is not none %}
                   <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
                 {% else %}

@@ -32,6 +32,7 @@ class Item(db.Model):
 
     cog = db.Column(db.Float, nullable=True)          # cost of goods
     sale_price = db.Column(db.Float, nullable=True)
+    direct_price_override = db.Column(db.Float, nullable=True)
     ad_fee = db.Column(db.Float, nullable=True)
     ebay_fee = db.Column(db.Float, nullable=True)
     shipping = db.Column(db.Float, nullable=True)

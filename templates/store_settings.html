@@ -42,7 +42,7 @@
     width:100%;
     border-collapse:separate;
     border-spacing:0 8px;
-    min-width:820px;
+    min-width:980px;
   }
   .profit-table th{
     color:var(--muted);
@@ -86,6 +86,19 @@
     border-radius:999px;
     padding:3px 7px;
     font-size:12px;
+  }
+  .override-form{
+    display:flex;
+    gap:6px;
+    align-items:center;
+    flex-wrap:nowrap;
+  }
+  .override-form input{
+    width:96px;
+    min-width:96px;
+  }
+  .override-form .btn{
+    padding:8px 10px;
   }
   @media (max-width: 980px){
     .store-settings-grid{ grid-template-columns:1fr; }
@@ -176,6 +189,7 @@
             <th>Item</th>
             <th>eBay</th>
             <th>Direct</th>
+            <th>Override</th>
             <th>COG</th>
             <th>Profit</th>
             <th>Margin</th>
@@ -188,11 +202,28 @@
             <tr class="{% if row.warnings %}needs-review{% endif %}">
               <td>
                 <strong>SKU {{ item.sku }}</strong>
-                <div>{{ item.item_name }}</div>
+                <div><a href="{{ url_for('item_detail', sku=item.sku, return_to=url_for('store_settings')) }}">{{ item.item_name }}</a></div>
                 {% if item.store_department %}<div class="small">{{ item.store_department }}</div>{% endif %}
               </td>
               <td>{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}-{% endif %}</td>
-              <td>{% if row.direct_price is not none %}${{ "%.2f"|format(row.direct_price) }}{% else %}-{% endif %}</td>
+              <td>
+                {% if row.direct_price is not none %}
+                  ${{ "%.2f"|format(row.direct_price) }}
+                  {% if item.direct_price_is_override %}<div class="small">Manual</div>{% endif %}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>
+                <form class="override-form" method="post" action="{{ url_for('store_item_direct_price_update', sku=item.sku) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                  <input name="direct_price_override" inputmode="decimal" placeholder="Default" value="{% if item.direct_price_override is not none %}{{ '%g'|format(item.direct_price_override) }}{% endif %}">
+                  <button class="btn secondary" type="submit">Save</button>
+                </form>
+                {% if item.direct_price_override is not none %}
+                  <div class="small">Clear by saving blank.</div>
+                {% endif %}
+              </td>
               <td>{% if item.cog is not none %}${{ "%.2f"|format(item.cog) }}{% else %}<span class="money-warn">Missing</span>{% endif %}</td>
               <td>
                 {% if row.projected_profit is not none %}
@@ -216,7 +247,7 @@
             </tr>
           {% else %}
             <tr>
-              <td colspan="7">No active listed store items yet.</td>
+              <td colspan="8">No active listed store items yet.</td>
             </tr>
           {% endfor %}
         </tbody>

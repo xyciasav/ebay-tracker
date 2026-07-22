@@ -1902,6 +1902,8 @@ def create_app():
                 _sqlite_add_column("items", "date_returned", "DATE")
             if not _sqlite_column_exists("items", "return_reference_id"):
                 _sqlite_add_column("items", "return_reference_id", "VARCHAR(120)")
+            if not _sqlite_column_exists("items", "direct_price_override"):
+                _sqlite_add_column("items", "direct_price_override", "FLOAT")
 
     @app.context_processor
     def inject_estimator_defaults():
@@ -3383,7 +3385,14 @@ def create_app():
         item.store_department = _public_store_department(item)
         item.direct_discount_percent = discount_percent
         item.direct_price = None
-        if item.sale_price is not None and discount_percent > 0:
+        item.direct_price_is_override = item.direct_price_override is not None
+        if item.direct_price_override is not None:
+            item.direct_price = round(float(item.direct_price_override), 2)
+            if item.sale_price and float(item.sale_price) > 0:
+                item.direct_discount_percent = max(0.0, (1 - (item.direct_price / float(item.sale_price))) * 100.0)
+            else:
+                item.direct_discount_percent = 0.0
+        elif item.sale_price is not None and discount_percent > 0:
             item.direct_price = round(float(item.sale_price) * (1 - discount_percent / 100.0), 2)
         return item
 
@@ -3475,6 +3484,30 @@ def create_app():
             _set_app_setting(key, value)
         db.session.commit()
         flash(f"Store settings saved. Direct-buy discount is {parsed['store_direct_discount_percent']:g}%.", "success")
+        return redirect(url_for("store_settings"))
+
+    @app.post("/settings/store/item/<int:sku>/direct-price")
+    @auth_required
+    def store_item_direct_price_update(sku: int):
+        item = Item.query.get_or_404(sku)
+        raw = request.form.get("direct_price_override", "").strip()
+        if raw == "":
+            item.direct_price_override = None
+            db.session.commit()
+            flash(f"Cleared direct price override for SKU {item.sku}.", "success")
+            return redirect(url_for("store_settings"))
+
+        direct_price = parse_float(raw)
+        if direct_price is None:
+            flash("Direct price override must be a valid number.", "error")
+            return redirect(url_for("store_settings"))
+        if direct_price < 0:
+            flash("Direct price override cannot be negative.", "error")
+            return redirect(url_for("store_settings"))
+
+        item.direct_price_override = direct_price
+        db.session.commit()
+        flash(f"Saved direct price override for SKU {item.sku} at ${direct_price:.2f}.", "success")
         return redirect(url_for("store_settings"))
 
     @app.get("/store")
