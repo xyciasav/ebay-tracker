@@ -3305,10 +3305,14 @@ def create_app():
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
     def _public_store_query():
+        listed_expr = (
+            (Item.ebay_item_number.isnot(None)) &
+            (func.trim(Item.ebay_item_number) != "")
+        )
         return (
             Item.query
-            .filter(Item.sold.is_(False), Item.canceled.is_(False))
-            .filter(Item.ebay_item_number.isnot(None), Item.ebay_item_number != "")
+            .filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False))
+            .filter(listed_expr)
         )
 
     @app.get("/store")
@@ -3334,12 +3338,15 @@ def create_app():
             query = query.filter(
                 (Item.item_name.ilike(like)) |
                 (Item.category.ilike(like)) |
-                (Item.ebay_category.ilike(like))
+                (Item.ebay_category.ilike(like)) |
+                (Item.ebay_condition.ilike(like)) |
+                (Item.ebay_item_number.ilike(like))
             )
         if category_filter:
+            category_like = category_filter.lower()
             query = query.filter(
-                (Item.category == category_filter) |
-                (Item.ebay_category == category_filter)
+                (func.lower(Item.category) == category_like) |
+                (func.lower(Item.ebay_category) == category_like)
             )
 
         if sort == "price_low":
