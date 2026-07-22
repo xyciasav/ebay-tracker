@@ -215,6 +215,8 @@
             <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest first</option>
             <option value="price_low" {% if sort == "price_low" %}selected{% endif %}>Price: low to high</option>
             <option value="price_high" {% if sort == "price_high" %}selected{% endif %}>Price: high to low</option>
+            <option value="discount_amount" {% if sort == "discount_amount" %}selected{% endif %}>Biggest savings</option>
+            <option value="discount_percent" {% if sort == "discount_percent" %}selected{% endif %}>Biggest percent off</option>
           </select>
         </div>
         <button class="btn" type="submit">Search</button>
@@ -230,7 +232,7 @@
       {% endif %}
     </section>
 
-    {% if not q and not category_filter and new_arrivals %}
+    {% if sort == "newest" and not q and not category_filter and new_arrivals %}
       <section class="feature-card">
         <div class="section-head" style="margin-top:0;">
           <div>
@@ -257,6 +259,7 @@
                     {% if item.direct_price is not none %}
                       <div class="ebay-price">{% if item.sale_price is not none %}eBay ${{ "%.2f"|format(item.sale_price) }}{% else %}eBay price on listing{% endif %}</div>
                       <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} {% if item.direct_discount_percent > 0 %}<span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span>{% elif item.direct_price_is_override %}<span class="discount-badge">direct</span>{% endif %}</div>
+                      {% if item.direct_discount_amount > 0 %}<div class="direct-note">Save ${{ "%.2f"|format(item.direct_discount_amount) }}</div>{% endif %}
                     {% elif item.sale_price is not none %}
                       <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
                     {% else %}
@@ -302,6 +305,7 @@
                 {% if item.direct_price is not none %}
                   <div class="ebay-price">{% if item.sale_price is not none %}eBay ${{ "%.2f"|format(item.sale_price) }}{% else %}eBay price on listing{% endif %}</div>
                   <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} {% if item.direct_discount_percent > 0 %}<span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span>{% elif item.direct_price_is_override %}<span class="discount-badge">direct</span>{% endif %}</div>
+                  {% if item.direct_discount_amount > 0 %}<div class="direct-note">Save ${{ "%.2f"|format(item.direct_discount_amount) }}</div>{% endif %}
                 {% elif item.sale_price is not none %}
                   <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
                 {% else %}

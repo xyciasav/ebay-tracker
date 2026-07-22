@@ -3386,6 +3386,7 @@ def create_app():
         item.direct_discount_percent = discount_percent
         item.direct_price = None
         item.direct_price_is_override = item.direct_price_override is not None
+        item.direct_discount_amount = 0.0
         if item.direct_price_override is not None:
             item.direct_price = round(float(item.direct_price_override), 2)
             if item.sale_price and float(item.sale_price) > 0:
@@ -3394,7 +3395,16 @@ def create_app():
                 item.direct_discount_percent = 0.0
         elif item.sale_price is not None and discount_percent > 0:
             item.direct_price = round(float(item.sale_price) * (1 - discount_percent / 100.0), 2)
+        if item.sale_price is not None and item.direct_price is not None:
+            item.direct_discount_amount = max(0.0, round(float(item.sale_price) - float(item.direct_price), 2))
         return item
+
+    def _public_store_effective_price(item):
+        if item.direct_price is not None:
+            return float(item.direct_price)
+        if item.sale_price is not None:
+            return float(item.sale_price)
+        return None
 
     @app.get("/settings/store")
     @auth_required
@@ -3518,13 +3528,11 @@ def create_app():
         query = _public_store_query()
         direct_discount_percent = _public_store_discount_percent()
 
-        if sort == "price_low":
-            query = query.order_by(Item.sale_price.asc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
-        elif sort == "price_high":
-            query = query.order_by(Item.sale_price.desc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
-        else:
+        valid_store_sorts = {"newest", "price_low", "price_high", "discount_amount", "discount_percent"}
+        if sort not in valid_store_sorts:
             sort = "newest"
-            query = query.order_by(Item.date_listed.desc(), Item.sku.desc())
+
+        query = query.order_by(Item.date_listed.desc(), Item.sku.desc())
 
         all_store_items = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).all()
         category_order = [
@@ -3557,6 +3565,44 @@ def create_app():
             ]
         if category_filter:
             items = [item for item in items if item.store_department.lower() == category_filter.lower()]
+
+        if sort == "price_low":
+            items.sort(
+                key=lambda item: (
+                    _public_store_effective_price(item) is None,
+                    _public_store_effective_price(item) if _public_store_effective_price(item) is not None else 999999999.0,
+                    -(item.sku or 0),
+                )
+            )
+        elif sort == "price_high":
+            items.sort(
+                key=lambda item: (
+                    _public_store_effective_price(item) is not None,
+                    _public_store_effective_price(item) if _public_store_effective_price(item) is not None else -1.0,
+                    item.sku or 0,
+                ),
+                reverse=True,
+            )
+        elif sort == "discount_amount":
+            items.sort(
+                key=lambda item: (
+                    float(item.direct_discount_amount or 0.0),
+                    float(item.direct_discount_percent or 0.0),
+                    _public_store_effective_price(item) or 0.0,
+                    item.sku or 0,
+                ),
+                reverse=True,
+            )
+        elif sort == "discount_percent":
+            items.sort(
+                key=lambda item: (
+                    float(item.direct_discount_percent or 0.0),
+                    float(item.direct_discount_amount or 0.0),
+                    _public_store_effective_price(item) or 0.0,
+                    item.sku or 0,
+                ),
+                reverse=True,
+            )
         new_arrivals = all_store_items[:6]
         return render_template(
             "store.html",
