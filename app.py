@@ -3340,12 +3340,29 @@ def create_app():
                 return label
         return "Other"
 
+    def _public_store_discount_percent():
+        raw = os.environ.get("STORE_DIRECT_DISCOUNT_PERCENT", "10")
+        try:
+            discount = float(raw)
+        except (TypeError, ValueError):
+            discount = 10.0
+        return min(max(discount, 0.0), 95.0)
+
+    def _decorate_public_store_item(item, discount_percent):
+        item.store_department = _public_store_department(item)
+        item.direct_discount_percent = discount_percent
+        item.direct_price = None
+        if item.sale_price is not None and discount_percent > 0:
+            item.direct_price = round(float(item.sale_price) * (1 - discount_percent / 100.0), 2)
+        return item
+
     @app.get("/store")
     def public_store():
         q = request.args.get("q", "").strip()
         category_filter = request.args.get("category", "").strip()
         sort = request.args.get("sort", "newest").strip().lower()
         query = _public_store_query()
+        direct_discount_percent = _public_store_discount_percent()
 
         if sort == "price_low":
             query = query.order_by(Item.sale_price.asc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
@@ -3363,13 +3380,13 @@ def create_app():
         ]
         category_set = set()
         for item in all_store_items:
-            item.store_department = _public_store_department(item)
+            _decorate_public_store_item(item, direct_discount_percent)
             category_set.add(item.store_department)
         categories = [label for label in category_order if label in category_set]
 
         items = query.all()
         for item in items:
-            item.store_department = _public_store_department(item)
+            _decorate_public_store_item(item, direct_discount_percent)
         if q:
             query_text = q.lower()
             items = [
@@ -3395,6 +3412,7 @@ def create_app():
             category_filter=category_filter,
             sort=sort,
             new_arrivals=new_arrivals,
+            direct_discount_percent=direct_discount_percent,
         )
 
     @app.get("/store/image/<int:image_id>")

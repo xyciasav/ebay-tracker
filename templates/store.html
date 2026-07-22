@@ -140,6 +140,23 @@
     .store-meta{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:auto; }
     .store-actions{ display:flex; gap:8px; flex-wrap:wrap; }
     .price{ font-size:22px; font-weight:850; letter-spacing:-.03em; }
+    .price-stack{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+    .ebay-price{ color:var(--muted); font-size:13px; text-decoration:line-through; }
+    .direct-price{ font-size:22px; font-weight:900; letter-spacing:-.04em; color:#15803d; }
+    .discount-badge{
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:3px 7px;
+      margin-left:5px;
+      background:#dcfce7;
+      color:#166534;
+      font-size:11px;
+      font-weight:850;
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+    .direct-note{ color:var(--muted); font-size:12px; }
     .category{ color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .empty{
       grid-column:1 / -1;
@@ -170,6 +187,9 @@
       <div>
         <h1>Dash of Joy Store</h1>
         <div class="tagline">Available eBay listings, collected in one simple browsing page.</div>
+        {% if direct_discount_percent > 0 %}
+          <div class="tagline">Want to buy direct? Direct prices shown here are {{ "%.0f"|format(direct_discount_percent) }}% below the listed eBay price.</div>
+        {% endif %}
       </div>
       <a class="btn secondary" href="https://www.ebay.com/usr/dashofjoy" target="_blank" rel="noopener noreferrer">View eBay Profile</a>
     </section>
@@ -233,8 +253,18 @@
               <div class="store-body">
                 <h2 class="store-title">{{ item.item_name }}</h2>
                 <div class="store-meta">
-                  <div class="price">{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}See eBay{% endif %}</div>
-                  <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">View</a>
+                  <div class="price-stack">
+                    {% if item.direct_price is not none %}
+                      <div class="ebay-price">eBay ${{ "%.2f"|format(item.sale_price) }}</div>
+                      <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} <span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span></div>
+                    {% elif item.sale_price is not none %}
+                      <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
+                    {% else %}
+                      <div class="price">See eBay</div>
+                    {% endif %}
+                    {% if item.direct_price is not none %}<div class="direct-note">Message me to buy direct</div>{% endif %}
+                  </div>
+                  <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
                 </div>
               </div>
             </article>
@@ -268,7 +298,17 @@
               <div class="category">{{ item.store_department }}</div>
             {% endif %}
             <div class="store-meta">
-              <div class="price">{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}See eBay{% endif %}</div>
+              <div class="price-stack">
+                {% if item.direct_price is not none %}
+                  <div class="ebay-price">eBay ${{ "%.2f"|format(item.sale_price) }}</div>
+                  <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} <span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span></div>
+                {% elif item.sale_price is not none %}
+                  <div class="price">${{ "%.2f"|format(item.sale_price) }}</div>
+                {% else %}
+                  <div class="price">See eBay</div>
+                {% endif %}
+                {% if item.direct_price is not none %}<div class="direct-note">Message me to buy direct</div>{% endif %}
+              </div>
               <div class="store-actions">
                 <button class="btn secondary share-btn" type="button" data-title="{{ item.item_name }}" data-url="{{ ebay_url }}">Share</button>
                 <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">Open in eBay</a>
