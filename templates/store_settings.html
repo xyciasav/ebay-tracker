@@ -2,10 +2,104 @@
 {% block title %}Store Settings - eBay Tracker{% endblock %}
 
 {% block content %}
+<style>
+  .store-settings-grid{
+    display:grid;
+    grid-template-columns:minmax(280px, 420px) 1fr;
+    gap:16px;
+    align-items:start;
+  }
+  .store-kpis{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:10px;
+    margin:16px 0;
+  }
+  .store-kpi{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:12px;
+  }
+  .store-kpi label{
+    display:block;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    font-size:11px;
+    margin-bottom:5px;
+  }
+  .store-kpi strong{
+    display:block;
+    font-size:24px;
+    line-height:1.05;
+  }
+  .profit-preview{
+    overflow:auto;
+    max-height:68vh;
+  }
+  .profit-table{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0 8px;
+    min-width:820px;
+  }
+  .profit-table th{
+    color:var(--muted);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    text-align:left;
+    padding:0 10px 2px;
+  }
+  .profit-table td{
+    background:rgba(255,255,255,.03);
+    border-top:1px solid var(--border);
+    border-bottom:1px solid var(--border);
+    padding:10px;
+    vertical-align:middle;
+  }
+  .profit-table td:first-child{
+    border-left:1px solid var(--border);
+    border-radius:14px 0 0 14px;
+  }
+  .profit-table td:last-child{
+    border-right:1px solid var(--border);
+    border-radius:0 14px 14px 0;
+  }
+  .profit-table tr.needs-review td{
+    background:rgba(255,193,7,.08);
+    border-color:rgba(255,193,7,.28);
+  }
+  .money-good{ color:var(--success); }
+  .money-warn{ color:var(--warning); }
+  .money-bad{ color:var(--danger); }
+  .warning-pills{
+    display:flex;
+    flex-wrap:wrap;
+    gap:5px;
+  }
+  .warning-pill{
+    display:inline-flex;
+    border:1px solid rgba(255,193,7,.38);
+    color:var(--warning);
+    border-radius:999px;
+    padding:3px 7px;
+    font-size:12px;
+  }
+  @media (max-width: 980px){
+    .store-settings-grid{ grid-template-columns:1fr; }
+    .store-kpis{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px){
+    .store-kpis{ grid-template-columns:1fr; }
+  }
+</style>
+
 <div class="page-hero">
   <div>
     <h1>Store Settings</h1>
-    <div class="small">Control the public customer-facing store without touching Docker env vars.</div>
+    <div class="small">Control the public store and sanity-check direct-buy profit against your COG.</div>
   </div>
   <div class="toolbar">
     <a class="btn secondary" href="{{ url_for('public_store') }}" target="_blank" rel="noopener noreferrer">Open Store</a>
@@ -13,36 +107,121 @@
   </div>
 </div>
 
-<div class="grid">
+<div class="store-kpis">
+  <div class="store-kpi">
+    <label>Listed in store</label>
+    <strong>{{ listed_count }}</strong>
+  </div>
+  <div class="store-kpi">
+    <label>Direct discount</label>
+    <strong>{{ '%g'|format(direct_discount_percent) }}%</strong>
+  </div>
+  <div class="store-kpi">
+    <label>Needs review</label>
+    <strong class="{% if warning_count %}money-warn{% endif %}">{{ warning_count }}</strong>
+  </div>
+  <div class="store-kpi">
+    <label>Missing COG</label>
+    <strong class="{% if missing_cog_count %}money-warn{% endif %}">{{ missing_cog_count }}</strong>
+  </div>
+</div>
+
+<div class="store-settings-grid">
   <form class="card" method="post" action="{{ url_for('store_settings_update') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
     <h3 style="margin-top:0;">Direct-buy discount</h3>
     <p class="small">
-      This controls the percent shown on <code>/store</code>. Example: a $100 eBay item at 10% off shows a $90 direct-buy price.
+      This controls the percent shown on <code>/store</code>. The profit preview uses
+      <code>direct price - COG</code>, before any shipping or payment fees.
     </p>
-    <div style="max-width:260px;">
+    <div>
       <label>Percent off eBay price</label>
       <input name="direct_discount_percent" type="number" min="0" max="95" step="0.1" value="{{ '%g'|format(direct_discount_percent) }}">
     </div>
     <div class="small" style="margin-top:8px;">Use 0 to hide the direct-buy discount pricing.</div>
+
+    <h3>Profit warnings</h3>
+    <div class="detail-grid">
+      <div>
+        <label>Warn under profit</label>
+        <input name="min_profit_warning" type="number" min="0" max="999999" step="0.01" value="{{ '%g'|format(min_profit_warning) }}">
+      </div>
+      <div>
+        <label>Warn under margin %</label>
+        <input name="min_margin_warning" type="number" min="0" max="100" step="0.1" value="{{ '%g'|format(min_margin_warning) }}">
+      </div>
+    </div>
+    <p class="small">
+      Example: a $1 board game at a $9 direct price clears $8 before other costs,
+      while a $20 item at $27 only clears $7. Same discount, very different comfort level.
+    </p>
     <div style="margin-top:14px;">
       <button class="btn" type="submit">Save Store Settings</button>
     </div>
   </form>
 
   <div class="card">
-    <h3 style="margin-top:0;">Current store</h3>
-    <div class="detail-grid" style="margin-top:10px;">
+    <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
       <div>
-        <label>Listed items shown</label>
-        <strong>{{ listed_count }}</strong>
+        <h3 style="margin-top:0;">Profit preview</h3>
+        <div class="small">Sorted with missing/low-profit items first so the “oof” stuff floats to the top.</div>
       </div>
-      <div>
-        <label>Direct discount</label>
-        <strong>{{ '%g'|format(direct_discount_percent) }}%</strong>
-      </div>
+      <div class="small" style="white-space:nowrap;">Known COG profit: ${{ "%.2f"|format(total_direct_profit) }}</div>
     </div>
-    <p class="small">Store items still come from active listed inventory only: not sold, not canceled, not returned, and with an eBay item number.</p>
+
+    <div class="profit-preview">
+      <table class="profit-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>eBay</th>
+            <th>Direct</th>
+            <th>COG</th>
+            <th>Profit</th>
+            <th>Margin</th>
+            <th>Review</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in preview_rows %}
+            {% set item = row.item %}
+            <tr class="{% if row.warnings %}needs-review{% endif %}">
+              <td>
+                <strong>SKU {{ item.sku }}</strong>
+                <div>{{ item.item_name }}</div>
+                {% if item.store_department %}<div class="small">{{ item.store_department }}</div>{% endif %}
+              </td>
+              <td>{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}-{% endif %}</td>
+              <td>{% if row.direct_price is not none %}${{ "%.2f"|format(row.direct_price) }}{% else %}-{% endif %}</td>
+              <td>{% if item.cog is not none %}${{ "%.2f"|format(item.cog) }}{% else %}<span class="money-warn">Missing</span>{% endif %}</td>
+              <td>
+                {% if row.projected_profit is not none %}
+                  <span class="{% if row.projected_profit < 0 %}money-bad{% elif row.warnings %}money-warn{% else %}money-good{% endif %}">${{ "%.2f"|format(row.projected_profit) }}</span>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>{% if row.projected_margin is not none %}{{ "%.1f"|format(row.projected_margin) }}%{% else %}-{% endif %}</td>
+              <td>
+                {% if row.warnings %}
+                  <div class="warning-pills">
+                    {% for warning in row.warnings %}
+                      <span class="warning-pill">{{ warning }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span class="small">Looks ok</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7">No active listed store items yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}

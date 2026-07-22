@@ -3340,14 +3340,44 @@ def create_app():
                 return label
         return "Other"
 
-    def _public_store_discount_percent():
-        setting = db.session.get(AppSetting, "store_direct_discount_percent")
-        raw = setting.value if setting and setting.value not in (None, "") else os.environ.get("STORE_DIRECT_DISCOUNT_PERCENT", "10")
+    def _app_setting_float(key, default, min_value=None, max_value=None, env_key=None):
+        setting = db.session.get(AppSetting, key)
+        raw = setting.value if setting and setting.value not in (None, "") else None
+        if raw is None and env_key:
+            raw = os.environ.get(env_key)
+        if raw is None:
+            raw = default
         try:
-            discount = float(raw)
+            value = float(raw)
         except (TypeError, ValueError):
-            discount = 10.0
-        return min(max(discount, 0.0), 95.0)
+            value = float(default)
+        if min_value is not None:
+            value = max(float(min_value), value)
+        if max_value is not None:
+            value = min(float(max_value), value)
+        return value
+
+    def _set_app_setting(key, value):
+        setting = db.session.get(AppSetting, key)
+        if setting is None:
+            setting = AppSetting(key=key)
+            db.session.add(setting)
+        setting.value = f"{value:g}"
+
+    def _public_store_discount_percent():
+        return _app_setting_float(
+            "store_direct_discount_percent",
+            10.0,
+            min_value=0.0,
+            max_value=95.0,
+            env_key="STORE_DIRECT_DISCOUNT_PERCENT",
+        )
+
+    def _store_min_profit_warning():
+        return _app_setting_float("store_min_profit_warning", 5.0, min_value=0.0, max_value=999999.0)
+
+    def _store_min_margin_warning():
+        return _app_setting_float("store_min_margin_warning", 40.0, min_value=0.0, max_value=100.0)
 
     def _decorate_public_store_item(item, discount_percent):
         item.store_department = _public_store_department(item)
@@ -3361,33 +3391,90 @@ def create_app():
     @auth_required
     def store_settings():
         direct_discount_percent = _public_store_discount_percent()
-        listed_count = _public_store_query().count()
+        min_profit_warning = _store_min_profit_warning()
+        min_margin_warning = _store_min_margin_warning()
+        store_items = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).all()
+        preview_rows = []
+        missing_cog_count = 0
+        warning_count = 0
+        total_direct_profit = 0.0
+
+        for item in store_items:
+            _decorate_public_store_item(item, direct_discount_percent)
+            direct_price = item.direct_price if item.direct_price is not None else item.sale_price
+            cog = item.cog
+            projected_profit = None
+            projected_margin = None
+            warnings = []
+
+            if cog is None:
+                missing_cog_count += 1
+                warnings.append("Missing COG")
+            elif direct_price is not None:
+                projected_profit = float(direct_price) - float(cog)
+                projected_margin = (projected_profit / float(direct_price) * 100.0) if float(direct_price) else None
+                total_direct_profit += projected_profit
+                if projected_profit < min_profit_warning:
+                    warnings.append("Low profit")
+                if projected_margin is not None and projected_margin < min_margin_warning:
+                    warnings.append("Low margin")
+
+            if warnings:
+                warning_count += 1
+
+            preview_rows.append(
+                {
+                    "item": item,
+                    "direct_price": direct_price,
+                    "projected_profit": projected_profit,
+                    "projected_margin": projected_margin,
+                    "warnings": warnings,
+                }
+            )
+
+        preview_rows.sort(
+            key=lambda row: (
+                0 if row["warnings"] else 1,
+                row["projected_profit"] if row["projected_profit"] is not None else -999999.0,
+            )
+        )
         return render_template(
             "store_settings.html",
             direct_discount_percent=direct_discount_percent,
-            listed_count=listed_count,
+            min_profit_warning=min_profit_warning,
+            min_margin_warning=min_margin_warning,
+            listed_count=len(store_items),
+            missing_cog_count=missing_cog_count,
+            warning_count=warning_count,
+            total_direct_profit=total_direct_profit,
+            preview_rows=preview_rows,
         )
 
     @app.post("/settings/store")
     @auth_required
     def store_settings_update():
-        raw_discount = request.form.get("direct_discount_percent", "").strip()
-        try:
-            direct_discount_percent = float(raw_discount)
-        except (TypeError, ValueError):
-            flash("Store discount must be a number.", "error")
-            return redirect(url_for("store_settings"))
-        if direct_discount_percent < 0 or direct_discount_percent > 95:
-            flash("Store discount must be between 0 and 95 percent.", "error")
-            return redirect(url_for("store_settings"))
+        fields = [
+            ("direct_discount_percent", "Store discount", 0.0, 95.0, "store_direct_discount_percent"),
+            ("min_profit_warning", "Minimum profit warning", 0.0, 999999.0, "store_min_profit_warning"),
+            ("min_margin_warning", "Minimum margin warning", 0.0, 100.0, "store_min_margin_warning"),
+        ]
+        parsed = {}
+        for form_key, label, min_value, max_value, setting_key in fields:
+            raw = request.form.get(form_key, "").strip()
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                flash(f"{label} must be a number.", "error")
+                return redirect(url_for("store_settings"))
+            if value < min_value or value > max_value:
+                flash(f"{label} must be between {min_value:g} and {max_value:g}.", "error")
+                return redirect(url_for("store_settings"))
+            parsed[setting_key] = value
 
-        setting = db.session.get(AppSetting, "store_direct_discount_percent")
-        if setting is None:
-            setting = AppSetting(key="store_direct_discount_percent")
-            db.session.add(setting)
-        setting.value = f"{direct_discount_percent:g}"
+        for key, value in parsed.items():
+            _set_app_setting(key, value)
         db.session.commit()
-        flash(f"Store direct-buy discount saved at {direct_discount_percent:g}%.", "success")
+        flash(f"Store settings saved. Direct-buy discount is {parsed['store_direct_discount_percent']:g}%.", "success")
         return redirect(url_for("store_settings"))
 
     @app.get("/store")
