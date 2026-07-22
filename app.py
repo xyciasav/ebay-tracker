@@ -27,7 +27,7 @@ from difflib import SequenceMatcher
 
 
 
-from models import db, Item, ItemImage, ScannerWatchKeyword
+from models import db, Item, ItemImage, ScannerWatchKeyword, AppSetting
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 
@@ -3341,7 +3341,8 @@ def create_app():
         return "Other"
 
     def _public_store_discount_percent():
-        raw = os.environ.get("STORE_DIRECT_DISCOUNT_PERCENT", "10")
+        setting = db.session.get(AppSetting, "store_direct_discount_percent")
+        raw = setting.value if setting and setting.value not in (None, "") else os.environ.get("STORE_DIRECT_DISCOUNT_PERCENT", "10")
         try:
             discount = float(raw)
         except (TypeError, ValueError):
@@ -3355,6 +3356,39 @@ def create_app():
         if item.sale_price is not None and discount_percent > 0:
             item.direct_price = round(float(item.sale_price) * (1 - discount_percent / 100.0), 2)
         return item
+
+    @app.get("/settings/store")
+    @auth_required
+    def store_settings():
+        direct_discount_percent = _public_store_discount_percent()
+        listed_count = _public_store_query().count()
+        return render_template(
+            "store_settings.html",
+            direct_discount_percent=direct_discount_percent,
+            listed_count=listed_count,
+        )
+
+    @app.post("/settings/store")
+    @auth_required
+    def store_settings_update():
+        raw_discount = request.form.get("direct_discount_percent", "").strip()
+        try:
+            direct_discount_percent = float(raw_discount)
+        except (TypeError, ValueError):
+            flash("Store discount must be a number.", "error")
+            return redirect(url_for("store_settings"))
+        if direct_discount_percent < 0 or direct_discount_percent > 95:
+            flash("Store discount must be between 0 and 95 percent.", "error")
+            return redirect(url_for("store_settings"))
+
+        setting = db.session.get(AppSetting, "store_direct_discount_percent")
+        if setting is None:
+            setting = AppSetting(key="store_direct_discount_percent")
+            db.session.add(setting)
+        setting.value = f"{direct_discount_percent:g}"
+        db.session.commit()
+        flash(f"Store direct-buy discount saved at {direct_discount_percent:g}%.", "success")
+        return redirect(url_for("store_settings"))
 
     @app.get("/store")
     def public_store():

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Store Settings - eBay Tracker{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+  <div>
+    <h1>Store Settings</h1>
+    <div class="small">Control the public customer-facing store without touching Docker env vars.</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn secondary" href="{{ url_for('public_store') }}" target="_blank" rel="noopener noreferrer">Open Store</a>
+    <a class="btn secondary" href="{{ url_for('index') }}">Back to Inventory</a>
+  </div>
+</div>
+
+<div class="grid">
+  <form class="card" method="post" action="{{ url_for('store_settings_update') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <h3 style="margin-top:0;">Direct-buy discount</h3>
+    <p class="small">
+      This controls the percent shown on <code>/store</code>. Example: a $100 eBay item at 10% off shows a $90 direct-buy price.
+    </p>
+    <div style="max-width:260px;">
+      <label>Percent off eBay price</label>
+      <input name="direct_discount_percent" type="number" min="0" max="95" step="0.1" value="{{ '%g'|format(direct_discount_percent) }}">
+    </div>
+    <div class="small" style="margin-top:8px;">Use 0 to hide the direct-buy discount pricing.</div>
+    <div style="margin-top:14px;">
+      <button class="btn" type="submit">Save Store Settings</button>
+    </div>
+  </form>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Current store</h3>
+    <div class="detail-grid" style="margin-top:10px;">
+      <div>
+        <label>Listed items shown</label>
+        <strong>{{ listed_count }}</strong>
+      </div>
+      <div>
+        <label>Direct discount</label>
+        <strong>{{ '%g'|format(direct_discount_percent) }}%</strong>
+      </div>
+    </div>
+    <p class="small">Store items still come from active listed inventory only: not sold, not canceled, not returned, and with an eBay item number.</p>
+  </div>
+</div>
+{% endblock %}

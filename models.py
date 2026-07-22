@@ -99,3 +99,11 @@ class ScannerWatchKeyword(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class AppSetting(db.Model):
+    __tablename__ = "app_settings"
+
+    key = db.Column(db.String(120), primary_key=True)
+    value = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
