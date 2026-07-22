@@ -2,6 +2,23 @@
 {% block title %}Inventory — eBay Tracker{% endblock %}
 
 {% block content %}
+<style>
+  .bulk-select-tools{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+    min-height:42px;
+  }
+  .bulk-select-tools .btn{
+    padding:8px 10px;
+    font-size:13px;
+  }
+  .bulk-selected-count{
+    flex-basis:100%;
+  }
+</style>
+
 <div class="page-hero">
   <div>
     <h1>Listing Desk</h1>
@@ -121,11 +138,10 @@
           <option value="shipped">Mark Shipped</option>
         </select>
       </div>
-      <div style="display:flex; gap:8px; align-items:center; min-height:42px;">
-        <label style="display:flex; gap:8px; align-items:center; margin:0; cursor:pointer;">
-          <input type="checkbox" id="bulkSelectAll" style="width:auto;">
-          Select shown
-        </label>
+      <div class="bulk-select-tools">
+        <button class="btn secondary" type="button" id="bulkSelectAllBtn">Select all shown</button>
+        <button class="btn secondary" type="button" id="bulkClearAllBtn">Clear all</button>
+        <span class="small bulk-selected-count" id="bulkSelectedCount">0 selected</span>
       </div>
       <div class="filter-actions">
         <button class="btn secondary" type="submit">Apply to Selected</button>
@@ -318,21 +334,47 @@
 {% endif %}
 <script>
   document.addEventListener("DOMContentLoaded", () => {
-    const selectAll = document.getElementById("bulkSelectAll");
-    if (!selectAll) return;
+    const selectAllBtn = document.getElementById("bulkSelectAllBtn");
+    const clearAllBtn = document.getElementById("bulkClearAllBtn");
+    const selectedCount = document.getElementById("bulkSelectedCount");
     const getBoxes = () => Array.from(document.querySelectorAll(".bulk-item-checkbox"));
-    const syncSelectAll = () => {
+    const syncBulkTools = () => {
       const boxes = getBoxes();
       const checked = boxes.filter((box) => box.checked).length;
-      selectAll.checked = boxes.length > 0 && checked === boxes.length;
-      selectAll.indeterminate = checked > 0 && checked < boxes.length;
+      if (selectedCount) {
+        selectedCount.textContent = `${checked} selected`;
+      }
+      if (selectAllBtn) {
+        selectAllBtn.disabled = boxes.length === 0 || checked === boxes.length;
+      }
+      if (clearAllBtn) {
+        clearAllBtn.disabled = checked === 0;
+      }
     };
-    selectAll.addEventListener("change", () => {
-      getBoxes().forEach((box) => { box.checked = selectAll.checked; });
-      syncSelectAll();
-    });
-    getBoxes().forEach((box) => box.addEventListener("change", syncSelectAll));
-    syncSelectAll();
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener("click", () => {
+        getBoxes().forEach((box) => { box.checked = true; });
+        syncBulkTools();
+      });
+    }
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener("click", () => {
+        getBoxes().forEach((box) => { box.checked = false; });
+        syncBulkTools();
+      });
+    }
+    getBoxes().forEach((box) => box.addEventListener("change", syncBulkTools));
+    const form = document.getElementById("bulkEditForm");
+    if (form) {
+      form.addEventListener("submit", (event) => {
+        const checked = getBoxes().filter((box) => box.checked).length;
+        if (checked === 0) {
+          event.preventDefault();
+          alert("Select at least one item first.");
+        }
+      });
+    }
+    syncBulkTools();
   });
 </script>
 {% endblock %}
