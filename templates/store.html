@@ -181,9 +181,9 @@
           <input name="q" value="{{ q }}" placeholder="Search available items..." autocomplete="off">
         </div>
         <div class="field">
-          <label>Category</label>
+          <label>Department</label>
           <select name="category">
-            <option value="">All categories</option>
+            <option value="">All departments</option>
             {% for category in categories %}
               <option value="{{ category }}" {% if category == category_filter %}selected{% endif %}>{{ category }}</option>
             {% endfor %}
@@ -202,8 +202,8 @@
       </form>
       {% if categories %}
         <div class="chips" aria-label="Browse by category">
-          <a class="chip {% if not category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, sort=sort) }}">All</a>
-          {% for category in categories[:10] %}
+          <a class="chip {% if not category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, sort=sort) }}">All departments</a>
+          {% for category in categories %}
             <a class="chip {% if category == category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, category=category, sort=sort) }}">{{ category }}</a>
           {% endfor %}
         </div>
@@ -264,8 +264,8 @@
           </a>
           <div class="store-body">
             <h2 class="store-title">{{ item.item_name }}</h2>
-            {% if item.category or item.ebay_category %}
-              <div class="category">{{ item.category or item.ebay_category }}</div>
+            {% if item.store_department %}
+              <div class="category">{{ item.store_department }}</div>
             {% endif %}
             <div class="store-meta">
               <div class="price">{% if item.sale_price is not none %}${{ "%.2f"|format(item.sale_price) }}{% else %}See eBay{% endif %}</div>

@@ -3315,39 +3315,37 @@ def create_app():
             .filter(listed_expr)
         )
 
+    def _public_store_department(item):
+        text = " ".join([
+            item.item_name or "",
+            item.category or "",
+            item.sub_category or "",
+            item.ebay_category or "",
+        ]).lower()
+        rules = [
+            ("Video Games", ("video game", "nintendo", "playstation", "xbox", "wii", "switch", "console", "controller", "gamecube", "sega")),
+            ("Board Games & Toys", ("board game", "card game", "party game", "toy", "figure", "figurine", "doll", "plush", "lego", "puzzle", "action figure")),
+            ("Trading Cards", ("trading card", "sports card", "pokemon", "mtg", "magic the gathering", "yugioh", "card lot")),
+            ("Books", ("book", "books", "novel", "hardcover", "paperback", "manga", "comic", "guide", "manual")),
+            ("Movies & Music", ("dvd", "blu-ray", "bluray", "vhs", "cassette", "cd", "vinyl", "record", "album", "movie", "music")),
+            ("Clothing", ("shirt", "t-shirt", "tee", "hoodie", "jacket", "pants", "jeans", "hat", "cap", "shoes", "dress", "sweater", "clothing")),
+            ("Electronics", ("electronics", "computer", "pc", "laptop", "tablet", "phone", "camera", "scanner", "printer", "receiver", "speaker", "headphone", "gpu", "graphics card")),
+            ("Collectibles", ("collectible", "collectibles", "vintage", "memorabilia", "ornament", "coin", "stamp", "rare")),
+            ("Home & Decor", ("home", "decor", "kitchen", "glass", "ceramic", "porcelain", "vase", "bowl", "plate", "mug", "lamp", "art")),
+            ("Sports & Outdoors", ("sport", "sports", "golf", "baseball", "football", "basketball", "fishing", "camping", "outdoor")),
+            ("Tools & Parts", ("tool", "tools", "part", "parts", "hardware", "automotive", "cable", "adapter", "charger")),
+        ]
+        for label, keywords in rules:
+            if any(keyword in text for keyword in keywords):
+                return label
+        return "Other"
+
     @app.get("/store")
     def public_store():
         q = request.args.get("q", "").strip()
         category_filter = request.args.get("category", "").strip()
         sort = request.args.get("sort", "newest").strip().lower()
         query = _public_store_query()
-
-        category_rows = (
-            _public_store_query()
-            .with_entities(Item.category, Item.ebay_category)
-            .all()
-        )
-        categories = sorted({
-            (category or ebay_category or "").strip()
-            for category, ebay_category in category_rows
-            if (category or ebay_category or "").strip()
-        }, key=str.lower)
-
-        if q:
-            like = f"%{q}%"
-            query = query.filter(
-                (Item.item_name.ilike(like)) |
-                (Item.category.ilike(like)) |
-                (Item.ebay_category.ilike(like)) |
-                (Item.ebay_condition.ilike(like)) |
-                (Item.ebay_item_number.ilike(like))
-            )
-        if category_filter:
-            category_like = category_filter.lower()
-            query = query.filter(
-                (func.lower(Item.category) == category_like) |
-                (func.lower(Item.ebay_category) == category_like)
-            )
 
         if sort == "price_low":
             query = query.order_by(Item.sale_price.asc().nullslast(), Item.date_listed.desc(), Item.sku.desc())
@@ -3357,8 +3355,38 @@ def create_app():
             sort = "newest"
             query = query.order_by(Item.date_listed.desc(), Item.sku.desc())
 
+        all_store_items = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).all()
+        category_order = [
+            "Video Games", "Board Games & Toys", "Trading Cards", "Books", "Movies & Music",
+            "Clothing", "Electronics", "Collectibles", "Home & Decor", "Sports & Outdoors",
+            "Tools & Parts", "Other",
+        ]
+        category_set = set()
+        for item in all_store_items:
+            item.store_department = _public_store_department(item)
+            category_set.add(item.store_department)
+        categories = [label for label in category_order if label in category_set]
+
         items = query.all()
-        new_arrivals = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).limit(6).all()
+        for item in items:
+            item.store_department = _public_store_department(item)
+        if q:
+            query_text = q.lower()
+            items = [
+                item for item in items
+                if query_text in " ".join([
+                    item.item_name or "",
+                    item.category or "",
+                    item.sub_category or "",
+                    item.ebay_category or "",
+                    item.ebay_condition or "",
+                    item.ebay_item_number or "",
+                    item.store_department or "",
+                ]).lower()
+            ]
+        if category_filter:
+            items = [item for item in items if item.store_department.lower() == category_filter.lower()]
+        new_arrivals = all_store_items[:6]
         return render_template(
             "store.html",
             items=items,
