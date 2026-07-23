@@ -3926,7 +3926,7 @@ def create_app():
     @app.route("/reports")
     @auth_required
     def reports():
-        range_key = (request.args.get("range") or "all").strip().lower()
+        range_key = (request.args.get("range") or "this_month").strip().lower()
         start_s = (request.args.get("start") or "").strip()
         end_s = (request.args.get("end") or "").strip()
         trend_mode = (request.args.get("trend") or "month").strip().lower()
@@ -4094,6 +4094,17 @@ def create_app():
             total_profit_q = total_profit_q.filter(*sold_date_filters)
         total_profit = float(total_profit_q.scalar() or 0.0)
 
+        month_start = today.replace(day=1)
+        month_profit = float(
+            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
+            .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= month_start, Item.date_sold <= today)
+            .scalar() or 0.0
+        )
+        month_sold_items = int(
+            Item.query
+            .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= month_start, Item.date_sold <= today)
+            .count()
+        )
         ytd_start = today.replace(month=1, day=1)
         ytd_profit = float(
             db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
@@ -4608,6 +4619,9 @@ def create_app():
             "sold_rate_pct": sold_rate_pct,
             "total_profit": float(total_profit),
             "selected_range_label": selected_range_label,
+            "month_profit": month_profit,
+            "month_sold_items": month_sold_items,
+            "month_label": month_start.strftime("%B %Y"),
             "ytd_profit": ytd_profit,
             "ytd_sold_items": ytd_sold_items,
             "all_time_profit": all_time_profit,

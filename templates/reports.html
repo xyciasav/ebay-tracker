@@ -163,8 +163,8 @@
       <div class="value {% if kpis.total_profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(kpis.total_profit) }}</div>
       <div class="small">{{ kpis.sold_items }} confirmed sold item{{ '' if kpis.sold_items == 1 else 's' }} in this view.</div>
       <div class="profit-context">
+        <span class="profit-pill"><strong>{{ kpis.month_label }}:</strong> ${{ "%.2f"|format(kpis.month_profit) }} · {{ kpis.month_sold_items }} sold</span>
         <span class="profit-pill"><strong>{{ kpis.ytd_year }} YTD:</strong> ${{ "%.2f"|format(kpis.ytd_profit) }} · {{ kpis.ytd_sold_items }} sold</span>
-        <span class="profit-pill"><strong>All time:</strong> ${{ "%.2f"|format(kpis.all_time_profit) }} · {{ kpis.all_time_sold_items }} sold</span>
       </div>
     </div>
     <div class="card mini-kpi">
