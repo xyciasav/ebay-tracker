@@ -3926,7 +3926,7 @@ def create_app():
     @app.route("/reports")
     @auth_required
     def reports():
-        range_key = (request.args.get("range") or "this_month").strip().lower()
+        range_key = (request.args.get("range") or "this_year").strip().lower()
         start_s = (request.args.get("start") or "").strip()
         end_s = (request.args.get("end") or "").strip()
         trend_mode = (request.args.get("trend") or "month").strip().lower()
@@ -4116,13 +4116,6 @@ def create_app():
             .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
             .count()
         )
-        all_time_profit = float(
-            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
-            .filter(confirmed_sold_expr)
-            .scalar() or 0.0
-        )
-        all_time_sold_items = int(Item.query.filter(confirmed_sold_expr).count())
-
         avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
 
         financial_item_expr = (
@@ -4624,8 +4617,6 @@ def create_app():
             "month_label": month_start.strftime("%B %Y"),
             "ytd_profit": ytd_profit,
             "ytd_sold_items": ytd_sold_items,
-            "all_time_profit": all_time_profit,
-            "all_time_sold_items": all_time_sold_items,
             "ytd_year": today.year,
             "avg_profit_per_sold": float(avg_profit_per_sold),
             "gross_sales_total": gross_sales_total,

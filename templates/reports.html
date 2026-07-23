@@ -120,7 +120,7 @@
           <option value="90d" {% if range_key=='90d' %}selected{% endif %}>Last 90 days</option>
           <option value="this_month" {% if range_key=='this_month' %}selected{% endif %}>This month</option>
           <option value="last_month" {% if range_key=='last_month' %}selected{% endif %}>Last month</option>
-          <option value="this_year" {% if range_key=='this_year' %}selected{% endif %}>This year</option>
+          <option value="this_year" {% if range_key=='this_year' %}selected{% endif %}>Year to date</option>
           <option value="last_year" {% if range_key=='last_year' %}selected{% endif %}>Last year</option>
           <option value="custom" {% if range_key=='custom' %}selected{% endif %}>Custom</option>
         </select>
@@ -164,7 +164,6 @@
       <div class="small">{{ kpis.sold_items }} confirmed sold item{{ '' if kpis.sold_items == 1 else 's' }} in this view.</div>
       <div class="profit-context">
         <span class="profit-pill"><strong>{{ kpis.month_label }}:</strong> ${{ "%.2f"|format(kpis.month_profit) }} · {{ kpis.month_sold_items }} sold</span>
-        <span class="profit-pill"><strong>{{ kpis.ytd_year }} YTD:</strong> ${{ "%.2f"|format(kpis.ytd_profit) }} · {{ kpis.ytd_sold_items }} sold</span>
       </div>
     </div>
     <div class="card mini-kpi">
