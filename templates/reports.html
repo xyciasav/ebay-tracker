@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Reports — eBay Tracker{% endblock %}
+{% block title %}Reports - eBay Tracker{% endblock %}
 
 {% block content %}
 <style>
@@ -18,6 +18,9 @@
       var(--card);
   }
   .hero-profit .value{ font-size:clamp(34px, 6vw, 54px); line-height:1; letter-spacing:-.05em; font-weight:800; margin-top:8px; }
+  .profit-context{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .profit-pill{ border:1px solid var(--border2); background:var(--soft); border-radius:999px; padding:5px 8px; font-size:12px; color:var(--muted); }
+  .profit-pill strong{ color:var(--text); }
   .mini-kpi label,
   .hero-profit label,
   .panel-heading .eyebrow{
@@ -156,9 +159,13 @@
 
   <section class="report-hero">
     <div class="card hero-profit">
-      <label>Total Profit</label>
+      <label>Total Profit - {{ kpis.selected_range_label }}</label>
       <div class="value {% if kpis.total_profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(kpis.total_profit) }}</div>
-      <div class="small">Confirmed sold items in the selected range.</div>
+      <div class="small">{{ kpis.sold_items }} confirmed sold item{{ '' if kpis.sold_items == 1 else 's' }} in this view.</div>
+      <div class="profit-context">
+        <span class="profit-pill"><strong>{{ kpis.ytd_year }} YTD:</strong> ${{ "%.2f"|format(kpis.ytd_profit) }} · {{ kpis.ytd_sold_items }} sold</span>
+        <span class="profit-pill"><strong>All time:</strong> ${{ "%.2f"|format(kpis.all_time_profit) }} · {{ kpis.all_time_sold_items }} sold</span>
+      </div>
     </div>
     <div class="card mini-kpi">
       <label>Confirmed sold</label>

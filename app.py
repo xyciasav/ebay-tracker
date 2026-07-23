@@ -3968,6 +3968,25 @@ def create_app():
         else:
             range_key = "all"
 
+        range_labels = {
+            "all": "All time",
+            "30d": "Last 30 days",
+            "90d": "Last 90 days",
+            "this_month": "This month",
+            "last_month": "Last month",
+            "this_year": f"{today.year} year to date",
+            "last_year": str(today.year - 1),
+            "custom": "Custom range",
+        }
+        if range_key == "custom" and start_date and end_date:
+            selected_range_label = f"{start_date.isoformat()} to {end_date.isoformat()}"
+        elif range_key == "custom" and start_date:
+            selected_range_label = f"From {start_date.isoformat()}"
+        elif range_key == "custom" and end_date:
+            selected_range_label = f"Through {end_date.isoformat()}"
+        else:
+            selected_range_label = range_labels.get(range_key, "All time")
+
         sold_date_filters = []
         if start_date:
             sold_date_filters.append(Item.date_sold.isnot(None))
@@ -4074,6 +4093,24 @@ def create_app():
         if sold_date_filters:
             total_profit_q = total_profit_q.filter(*sold_date_filters)
         total_profit = float(total_profit_q.scalar() or 0.0)
+
+        ytd_start = today.replace(month=1, day=1)
+        ytd_profit = float(
+            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
+            .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
+            .scalar() or 0.0
+        )
+        ytd_sold_items = int(
+            Item.query
+            .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
+            .count()
+        )
+        all_time_profit = float(
+            db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
+            .filter(confirmed_sold_expr)
+            .scalar() or 0.0
+        )
+        all_time_sold_items = int(Item.query.filter(confirmed_sold_expr).count())
 
         avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
 
@@ -4570,6 +4607,12 @@ def create_app():
             "sold_items": sold_items,
             "sold_rate_pct": sold_rate_pct,
             "total_profit": float(total_profit),
+            "selected_range_label": selected_range_label,
+            "ytd_profit": ytd_profit,
+            "ytd_sold_items": ytd_sold_items,
+            "all_time_profit": all_time_profit,
+            "all_time_sold_items": all_time_sold_items,
+            "ytd_year": today.year,
             "avg_profit_per_sold": float(avg_profit_per_sold),
             "gross_sales_total": gross_sales_total,
             "net_sales_total": net_sales_total,
