@@ -17,6 +17,35 @@
   .bulk-selected-count{
     flex-basis:100%;
   }
+  .price-profit-wrap{
+    display:inline-flex;
+    gap:6px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .profit-bubble{
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:3px 7px;
+    font-size:12px;
+    font-weight:800;
+    line-height:1;
+    border:1px solid var(--border);
+    background:var(--pillBg);
+    white-space:nowrap;
+  }
+  .profit-bubble.positive{
+    color:var(--success);
+    border-color:color-mix(in srgb, var(--success) 45%, var(--border));
+  }
+  .profit-bubble.negative{
+    color:var(--danger);
+    border-color:color-mix(in srgb, var(--danger) 45%, var(--border));
+  }
+  .profit-bubble.neutral{
+    color:var(--muted);
+  }
 </style>
 
 <div class="page-hero">
@@ -213,7 +242,18 @@
               {% if item.ebay_item_number %}<div>{{ item.ebay_item_number }}</div>{% endif %}
               {% if item.ebay_custom_label %}<div class="small">{{ item.ebay_custom_label }}</div>{% endif %}
             </td>
-            <td>{% if item.sale_price is not none %}${{ '%.2f'|format(item.sale_price) }}{% endif %}</td>
+            <td>
+              {% if item.sale_price is not none %}
+                <span class="price-profit-wrap">
+                  <span>${{ '%.2f'|format(item.sale_price) }}</span>
+                  {% if item.sold %}
+                    <span class="profit-bubble {% if item.profit > 0 %}positive{% elif item.profit < 0 %}negative{% else %}neutral{% endif %}" title="Profit after COG, shipping, eBay fees, ad fees, and refunds">
+                      {% if item.profit > 0 %}+${{ '%.2f'|format(item.profit) }}{% elif item.profit < 0 %}-${{ '%.2f'|format(-item.profit) }}{% else %}$0.00{% endif %}
+                    </span>
+                  {% endif %}
+                </span>
+              {% endif %}
+            </td>
             <td>{% if item.cog is not none %}${{ '%.2f'|format(item.cog) }}{% endif %}</td>
             <td>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -277,7 +317,16 @@
           <h3><a href="{{ url_for('item_detail', sku=item.sku, return_to=current_url) }}">{{ item.item_name }}</a></h3>
 
           <div class="meta-row">
-            {% if item.sale_price is not none %}<span>${{ '%.2f'|format(item.sale_price) }}</span>{% endif %}
+            {% if item.sale_price is not none %}
+              <span class="price-profit-wrap">
+                <span>${{ '%.2f'|format(item.sale_price) }}</span>
+                {% if item.sold %}
+                  <span class="profit-bubble {% if item.profit > 0 %}positive{% elif item.profit < 0 %}negative{% else %}neutral{% endif %}" title="Profit after COG, shipping, eBay fees, ad fees, and refunds">
+                    {% if item.profit > 0 %}+${{ '%.2f'|format(item.profit) }}{% elif item.profit < 0 %}-${{ '%.2f'|format(-item.profit) }}{% else %}$0.00{% endif %}
+                  </span>
+                {% endif %}
+              </span>
+            {% endif %}
             {% if item.category or item.ebay_category %}<span>{{ item.category or item.ebay_category }}</span>{% endif %}
             {% if item.source_location %}<span>{{ item.source_location }}</span>{% endif %}
           </div>
