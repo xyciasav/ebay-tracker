@@ -4345,6 +4345,9 @@ def create_app():
 
         by_source.sort(key=lambda x: (x["sold_count"], x["total_profit"]), reverse=True)
 
+        best_source = next((r for r in sorted(by_source, key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True) if r["sold_count"]), None)
+        best_category = next((r for r in sorted(by_category, key=lambda x: (x["total_profit"], x["sold_count"]), reverse=True) if r["sold_count"]), None)
+
         pipeline_items = [
             {"label": "Listed", "count": listed_items, "class": "listed", "href": url_for("index", status="listed")},
             {"label": "Not listed", "count": not_listed_items, "class": "not-listed", "href": url_for("index", status="not_listed")},
@@ -4550,6 +4553,12 @@ def create_app():
             db.session.query(
                 Item.sku,
                 Item.item_name,
+                report_revenue_expr.label("revenue"),
+                Item.cog.label("cog"),
+                Item.shipping.label("shipping"),
+                Item.ebay_fee.label("ebay_fee"),
+                Item.ad_fee.label("ad_fee"),
+                Item.refund_amount.label("refund_amount"),
                 profit_expr.label("profit"),
                 Item.date_sold.label("date_sold"),
             )
@@ -4558,15 +4567,46 @@ def create_app():
         )
         if sold_date_filters:
             negative_q = negative_q.filter(*sold_date_filters)
-        negative_profit = [
-            {
-                "sku": r.sku,
-                "item_name": r.item_name,
-                "profit": float(r.profit or 0.0),
-                "date_sold": r.date_sold.isoformat() if r.date_sold else "",
-            }
-            for r in negative_q.order_by(profit_expr.asc()).limit(12).all()
-        ]
+        negative_rows = negative_q.order_by(profit_expr.asc()).limit(12).all()
+        negative_profit = []
+        for r in negative_rows:
+            revenue = float(r.revenue or 0.0)
+            cog = float(r.cog or 0.0)
+            shipping = float(r.shipping or 0.0)
+            ebay_fee = float(r.ebay_fee or 0.0)
+            ad_fee = float(r.ad_fee or 0.0)
+            refund_amount = float(r.refund_amount or 0.0)
+            biggest_cost_label = "COG"
+            biggest_cost_amount = cog
+            for label, amount in [("Shipping", shipping), ("eBay fees", ebay_fee), ("Ad fees", ad_fee), ("Refund", refund_amount)]:
+                if amount > biggest_cost_amount:
+                    biggest_cost_label = label
+                    biggest_cost_amount = amount
+            negative_profit.append(
+                {
+                    "sku": r.sku,
+                    "item_name": r.item_name,
+                    "revenue": revenue,
+                    "cog": cog,
+                    "shipping": shipping,
+                    "ebay_fee": ebay_fee,
+                    "ad_fee": ad_fee,
+                    "refund_amount": refund_amount,
+                    "profit": float(r.profit or 0.0),
+                    "loss_amount": abs(float(r.profit or 0.0)),
+                    "biggest_cost_label": biggest_cost_label,
+                    "biggest_cost_amount": biggest_cost_amount,
+                    "date_sold": r.date_sold.isoformat() if r.date_sold else "",
+                }
+            )
+
+        negative_profit_count_q = db.session.query(func.count(Item.sku)).filter(confirmed_sold_expr, profit_expr < 0)
+        negative_profit_total_q = db.session.query(func.coalesce(func.sum(profit_expr), 0.0)).filter(confirmed_sold_expr, profit_expr < 0)
+        if sold_date_filters:
+            negative_profit_count_q = negative_profit_count_q.filter(*sold_date_filters)
+            negative_profit_total_q = negative_profit_total_q.filter(*sold_date_filters)
+        negative_profit_count = int(negative_profit_count_q.scalar() or 0)
+        negative_profit_total = float(negative_profit_total_q.scalar() or 0.0)
 
         returned_rows_q = (
             Item.query
@@ -4614,6 +4654,8 @@ def create_app():
             "shipping_shortfall_total": shipping_shortfall_total,
             "shipping_shortfall_count": shipping_shortfall_count,
             "shipping_recovery_pct": shipping_recovery_pct,
+            "negative_profit_count": negative_profit_count,
+            "negative_profit_total": negative_profit_total,
             "ebay_fee_total": ebay_fee_total,
             "ad_fee_total": ad_fee_total,
             "operating_cost_total": operating_cost_total,
@@ -4623,6 +4665,8 @@ def create_app():
             "unsold_inventory_cost": unsold_inventory_cost,
             "unsold_listed_value": unsold_listed_value,
             "missing_sold_review": missing_sold_review,
+            "best_source": best_source,
+            "best_category": best_category,
         }
 
         report_viz = {
