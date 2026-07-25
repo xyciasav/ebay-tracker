@@ -54,6 +54,23 @@
   .trend-bar{ width:100%; max-width:30px; min-height:4px; border-radius:10px 10px 0 0; background:var(--success); }
   .trend-bar.negative{ background:var(--danger); }
   .trend-label{ font-size:11px; color:var(--muted); min-height:16px; white-space:nowrap; }
+  .line-chart-card{ grid-column:1 / -1; }
+  .line-chart-wrap{ border:1px solid var(--border2); border-radius:16px; background:var(--soft); padding:12px; overflow:hidden; }
+  .line-chart{ width:100%; height:260px; display:block; overflow:visible; }
+  .line-chart .baseline{ stroke:var(--border); stroke-width:.7; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+  .line-chart .series-line{ fill:none; stroke-width:2.6; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+  .line-legend{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .line-pill{ border:1px solid var(--border2); border-radius:999px; background:var(--card); padding:5px 8px; font-size:12px; color:var(--muted); }
+  .line-dot{ width:9px; height:9px; display:inline-block; border-radius:999px; margin-right:6px; }
+  .line-axis{ display:flex; justify-content:space-between; gap:8px; margin-top:8px; color:var(--muted); font-size:11px; }
+  .season-grid{ display:flex; flex-direction:column; gap:10px; }
+  .season-row{ display:grid; grid-template-columns:minmax(120px, 190px) repeat(4, minmax(90px, 1fr)); gap:8px; align-items:stretch; }
+  .season-name{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; align-self:center; }
+  .season-cell{ border:1px solid var(--border2); border-radius:12px; padding:8px; background:var(--soft); min-width:0; }
+  .season-cell strong{ display:block; font-size:15px; }
+  .season-track{ height:6px; border-radius:999px; background:rgba(255,255,255,.04); overflow:hidden; margin-top:6px; }
+  .season-fill{ height:100%; background:var(--accent); border-radius:999px; }
+  .season-fill.negative{ background:var(--danger); }
   .bar-list{ display:flex; flex-direction:column; gap:10px; }
   .bar-row{ display:grid; grid-template-columns:minmax(100px, 160px) 1fr minmax(76px, auto); gap:10px; align-items:center; }
   .bar-label{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -115,6 +132,7 @@
     .action-layout{ grid-template-columns:1fr; }
     .action-card.wide{ grid-column:auto; }
     .action-card.wide .action-list{ grid-template-columns:1fr; }
+    .season-row{ grid-template-columns:1fr; }
     .action-card,
     .action-card.compact,
     .action-card.wide{ max-height:none; }
@@ -136,6 +154,7 @@
     <div class="toolbar">
       <a class="btn secondary" href="{{ url_for('index', status='sold_review') }}">Sold Review</a>
       <a class="btn secondary" href="{{ url_for('index', status='returned') }}">Refunded</a>
+      <a class="btn secondary" href="{{ url_for('categories_manage') }}">Manage Categories</a>
       <a class="btn secondary" href="{{ url_for('index', status='not_listed') }}">Not Listed</a>
       <a class="btn secondary" href="{{ url_for('index', status='canceled') }}">Canceled</a>
     </div>
@@ -410,6 +429,66 @@
           <div class="small">No category profit yet.</div>
         {% endfor %}
       </div>
+    </div>
+
+    <div class="card line-chart-card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Category momentum</div>
+          <h3>Top categories over time</h3>
+        </div>
+        <div class="small">Net profit, refunds included</div>
+      </div>
+      {% if report_viz.category_line_chart.series %}
+        <div class="line-chart-wrap">
+          <svg class="line-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Top category profit trend">
+            <line class="baseline" x1="0" y1="{{ report_viz.category_line_chart.baseline_y }}" x2="100" y2="{{ report_viz.category_line_chart.baseline_y }}"></line>
+            {% for s in report_viz.category_line_chart.series %}
+              <polyline class="series-line" points="{{ s.points }}" stroke="{{ s.color }}"></polyline>
+            {% endfor %}
+          </svg>
+          <div class="line-axis">
+            {% for label in report_viz.category_line_chart.labels %}
+              <span>{{ label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="line-legend">
+          {% for s in report_viz.category_line_chart.series %}
+            <span class="line-pill"><span class="line-dot" style="background:{{ s.color }}"></span>{{ s.category }} · ${{ "%.0f"|format(s.latest_profit) }} latest</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="small">Need dated sold/refund data in categories before the line chart can draw.</div>
+      {% endif %}
+    </div>
+
+    <div class="card line-chart-card">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Season trends</div>
+          <h3>Category profit by season</h3>
+        </div>
+        <div class="small">Winter / Spring / Summer / Fall</div>
+      </div>
+      {% if report_viz.category_season_rows %}
+        <div class="season-grid">
+          {% for row in report_viz.category_season_rows %}
+            <div class="season-row">
+              <div class="season-name" title="{{ row.category }}">{{ row.category }}</div>
+              {% for cell in row.cells %}
+                <div class="season-cell">
+                  <div class="small">{{ cell.season }} · {{ cell.count }} item{{ '' if cell.count == 1 else 's' }}</div>
+                  <strong class="{% if cell.profit < 0 %}money-negative{% elif cell.profit > 0 %}money-positive{% endif %}">${{ "%.0f"|format(cell.profit) }}</strong>
+                  <div class="season-track"><div class="season-fill {% if cell.profit < 0 %}negative{% endif %}" style="width:{{ cell.width }}%;"></div></div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="small">No seasonal category data yet.</div>
+      {% endif %}
     </div>
   </section>
 

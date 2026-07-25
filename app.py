@@ -3923,6 +3923,105 @@ def create_app():
         flash(f"Bulk updated {updated} item{'s' if updated != 1 else ''}.", "success")
         return redirect(return_to)
 
+    @app.route("/categories", methods=["GET", "POST"])
+    @auth_required
+    def categories_manage():
+        def category_expr():
+            return func.coalesce(func.nullif(func.trim(Item.category), ""), "Uncategorized")
+
+        if request.method == "POST":
+            action = (request.form.get("action") or "rename").strip()
+            old_category = (request.form.get("old_category") or "").strip()
+            new_category = (request.form.get("new_category") or "").strip()
+            sync_ebay_category = request.form.get("sync_ebay_category") == "1"
+
+            if not old_category:
+                flash("Pick a category to update.", "warning")
+                return redirect(url_for("categories_manage"))
+
+            old_filter = (Item.category.is_(None)) | (func.trim(Item.category) == "") if old_category == "Uncategorized" else (Item.category == old_category)
+            items = Item.query.filter(old_filter).all()
+            if not items:
+                flash("No items matched that category.", "warning")
+                return redirect(url_for("categories_manage"))
+
+            if action == "clear":
+                replacement = None
+            else:
+                replacement = new_category or None
+                if not replacement:
+                    flash("Enter the new category name, or use Clear.", "warning")
+                    return redirect(url_for("categories_manage"))
+
+            updated = 0
+            for item in items:
+                if item.category != replacement:
+                    item.category = replacement
+                    updated += 1
+                if sync_ebay_category and item.ebay_category != replacement:
+                    item.ebay_category = replacement
+                    updated += 1
+
+            db.session.commit()
+            label = replacement or "Uncategorized"
+            flash(f"Updated {len(items)} item{'s' if len(items) != 1 else ''}: {old_category} → {label}.", "success")
+            return redirect(url_for("categories_manage"))
+
+        cat_col = category_expr()
+        returned_expr = _returned_expr()
+        financial_item_expr = (
+            (Item.sold.is_(True)) &
+            (Item.canceled.is_(False)) &
+            ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
+        )
+        active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.returned.is_(False))
+        revenue_expr = case(
+            (
+                (Item.buyer_paid_amount.isnot(None)) & (Item.sale_price.isnot(None)),
+                func.coalesce(Item.buyer_paid_amount, 0.0),
+            ),
+            (Item.buyer_paid_amount.isnot(None), func.coalesce(Item.buyer_paid_amount, 0.0)),
+            (Item.sale_price.isnot(None), func.coalesce(Item.sale_price, 0.0)),
+            else_=0.0,
+        )
+        profit_expr = (
+            revenue_expr
+            - func.coalesce(Item.refund_amount, 0.0)
+            - (
+                func.coalesce(Item.cog, 0.0)
+                + func.coalesce(Item.shipping, 0.0)
+                + func.coalesce(Item.ad_fee, 0.0)
+                + func.coalesce(Item.ebay_fee, 0.0)
+            )
+        )
+
+        rows = (
+            db.session.query(
+                cat_col.label("category"),
+                func.count(Item.sku).label("total_count"),
+                func.sum(case((financial_item_expr, 1), else_=0)).label("financial_count"),
+                func.sum(case((active_unsold_expr, 1), else_=0)).label("active_count"),
+                func.sum(case((returned_expr, 1), else_=0)).label("returned_count"),
+                func.coalesce(func.sum(case((financial_item_expr, profit_expr), else_=0.0)), 0.0).label("profit"),
+            )
+            .group_by(cat_col)
+            .order_by(cat_col)
+            .all()
+        )
+        categories = [
+            {
+                "category": r.category,
+                "total_count": int(r.total_count or 0),
+                "financial_count": int(r.financial_count or 0),
+                "active_count": int(r.active_count or 0),
+                "returned_count": int(r.returned_count or 0),
+                "profit": float(r.profit or 0.0),
+            }
+            for r in rows
+        ]
+        all_category_names = [r["category"] for r in categories]
+        return render_template("categories.html", categories=categories, all_category_names=all_category_names)
+
     @app.route("/reports")
     @auth_required
     def reports():
@@ -4375,6 +4474,110 @@ def create_app():
         for r in category_chart:
             r["profit_width"] = max(4.0, abs(r["total_profit"]) * 100.0 / max_category_profit)
 
+        top_category_names = [r["category"] for r in category_chart[:5] if r.get("category")]
+        category_line_chart = {
+            "periods": [],
+            "series": [],
+            "baseline_y": 50,
+        }
+        category_season_rows = []
+        if top_category_names:
+            category_month_expr = func.strftime("%Y-%m", Item.date_sold)
+            category_line_q = (
+                db.session.query(
+                    category_col.label("category"),
+                    category_month_expr.label("period"),
+                    func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
+                )
+                .filter(financial_item_expr, Item.date_sold.isnot(None), category_col.in_(top_category_names))
+            )
+            if sold_date_filters:
+                category_line_q = category_line_q.filter(*sold_date_filters)
+            category_line_rows = category_line_q.group_by(category_col, category_month_expr).order_by(category_month_expr.asc()).all()
+            category_periods = sorted({r.period for r in category_line_rows if r.period})[-12:]
+            category_period_labels = []
+            for period in category_periods:
+                try:
+                    category_period_labels.append(datetime.strptime(period, "%Y-%m").strftime("%b"))
+                except ValueError:
+                    category_period_labels.append(period)
+
+            profit_by_category_period = {}
+            for r in category_line_rows:
+                if r.period in category_periods:
+                    profit_by_category_period[(r.category, r.period)] = float(r.profit or 0.0)
+            max_category_line_profit = max([abs(v) for v in profit_by_category_period.values()] + [1.0])
+            chart_colors = ["#60a5fa", "#22c55e", "#fbbf24", "#f87171", "#c084fc"]
+            series = []
+            for idx, category_name in enumerate(top_category_names):
+                values = [profit_by_category_period.get((category_name, period), 0.0) for period in category_periods]
+                points = []
+                for point_idx, value in enumerate(values):
+                    x = 50.0 if len(category_periods) == 1 else point_idx * 100.0 / max(len(category_periods) - 1, 1)
+                    y = 50.0 - (value * 45.0 / max_category_line_profit)
+                    y = max(5.0, min(95.0, y))
+                    points.append(f"{x:.2f},{y:.2f}")
+                if points:
+                    series.append({
+                        "category": category_name,
+                        "color": chart_colors[idx % len(chart_colors)],
+                        "points": " ".join(points),
+                        "latest_profit": values[-1] if values else 0.0,
+                    })
+            category_line_chart = {
+                "periods": category_periods,
+                "labels": category_period_labels,
+                "series": series,
+                "baseline_y": 50,
+            }
+
+            season_q = (
+                db.session.query(
+                    category_col.label("category"),
+                    func.strftime("%m", Item.date_sold).label("month"),
+                    func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
+                    func.count(Item.sku).label("count"),
+                )
+                .filter(financial_item_expr, Item.date_sold.isnot(None), category_col.in_(top_category_names))
+            )
+            if sold_date_filters:
+                season_q = season_q.filter(*sold_date_filters)
+            season_rows_raw = season_q.group_by(category_col, func.strftime("%m", Item.date_sold)).all()
+            season_order = ["Winter", "Spring", "Summer", "Fall"]
+            season_months = {
+                "12": "Winter", "01": "Winter", "02": "Winter",
+                "03": "Spring", "04": "Spring", "05": "Spring",
+                "06": "Summer", "07": "Summer", "08": "Summer",
+                "09": "Fall", "10": "Fall", "11": "Fall",
+            }
+            season_map = {}
+            for r in season_rows_raw:
+                season = season_months.get(r.month or "", "Other")
+                key = (r.category, season)
+                current = season_map.setdefault(key, {"profit": 0.0, "count": 0})
+                current["profit"] += float(r.profit or 0.0)
+                current["count"] += int(r.count or 0)
+
+            max_season_profit = max([abs(v["profit"]) for v in season_map.values()] + [1.0])
+            for category_name in top_category_names:
+                cells = []
+                total_profit_for_category = 0.0
+                for season in season_order:
+                    data = season_map.get((category_name, season), {"profit": 0.0, "count": 0})
+                    total_profit_for_category += data["profit"]
+                    cells.append({
+                        "season": season,
+                        "profit": data["profit"],
+                        "count": data["count"],
+                        "width": max(4.0, abs(data["profit"]) * 100.0 / max_season_profit) if data["profit"] else 0.0,
+                    })
+                category_season_rows.append({
+                    "category": category_name,
+                    "total_profit": total_profit_for_category,
+                    "cells": cells,
+                })
+            category_season_rows.sort(key=lambda x: x["total_profit"], reverse=True)
+
         if trend_mode == "day":
             trend_period_expr = func.strftime("%Y-%m-%d", Item.date_sold)
             trend_limit = 30
@@ -4679,6 +4882,8 @@ def create_app():
             "pipeline_total": pipeline_total,
             "source_chart": source_chart,
             "category_chart": category_chart,
+            "category_line_chart": category_line_chart,
+            "category_season_rows": category_season_rows,
             "profit_trend": profit_trend,
             "cost_breakdown": cost_breakdown,
             "trend_title": trend_title,

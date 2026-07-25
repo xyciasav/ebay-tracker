@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Categories - eBay Tracker{% endblock %}
+
+{% block content %}
+<style>
+  .category-shell{ display:flex; flex-direction:column; gap:14px; }
+  .category-grid{ display:grid; grid-template-columns:minmax(320px, .9fr) minmax(360px, 1.1fr); gap:14px; align-items:start; }
+  .category-list{ display:flex; flex-direction:column; gap:10px; }
+  .category-row{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; }
+  .category-row strong{ display:block; font-size:17px; }
+  .category-stats{ display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+  .category-profit{ font-weight:800; font-size:18px; }
+  .manager-form{ display:grid; gap:12px; }
+  .inline-check{ display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
+  .inline-check input{ width:auto; }
+  .danger-note{ border:1px solid color-mix(in srgb, var(--warning) 55%, var(--border)); background:color-mix(in srgb, var(--warning) 8%, var(--card)); border-radius:12px; padding:10px; }
+  @media (max-width:900px){
+    .category-grid{ grid-template-columns:1fr; }
+    .category-row{ grid-template-columns:1fr; }
+  }
+</style>
+
+<div class="category-shell">
+  <div class="page-hero">
+    <div>
+      <h1>Categories</h1>
+      <div class="small">Clean up category names, merge duplicates, or clear bad imports back to Uncategorized.</div>
+    </div>
+    <div class="toolbar">
+      <a class="btn secondary" href="{{ url_for('reports') }}">Back to Reports</a>
+      <a class="btn secondary" href="{{ url_for('index') }}">Inventory</a>
+    </div>
+  </div>
+
+  <section class="category-grid">
+    <div class="card">
+      <h2 style="margin-top:0;">Modify a category</h2>
+      <form method="post" class="manager-form">
+        <div>
+          <label>Current category</label>
+          <select name="old_category" required>
+            <option value="">Choose category...</option>
+            {% for name in all_category_names %}
+              <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Rename / merge into</label>
+          <input name="new_category" list="categoryNames" placeholder="Example: Board Games">
+          <datalist id="categoryNames">
+            {% for name in all_category_names %}
+              {% if name != "Uncategorized" %}<option value="{{ name }}">{% endif %}
+            {% endfor %}
+          </datalist>
+          <div class="small">If this name already exists, items will merge into it.</div>
+        </div>
+        <label class="inline-check">
+          <input type="checkbox" name="sync_ebay_category" value="1">
+          Also update the eBay category field on those items
+        </label>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" name="action" value="rename" type="submit">Rename / Merge</button>
+          <button class="btn secondary" name="action" value="clear" type="submit">Clear to Uncategorized</button>
+        </div>
+      </form>
+      <div class="danger-note small" style="margin-top:14px;">
+        This updates every item currently in the selected category. Nice and powerful, slightly spicy.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="page-hero" style="margin-bottom:10px;">
+        <div>
+          <h2 style="margin:0;">Current categories</h2>
+          <div class="small">{{ categories|length }} category bucket{{ '' if categories|length == 1 else 's' }}</div>
+        </div>
+      </div>
+      <div class="category-list">
+        {% for row in categories %}
+          <div class="category-row">
+            <div>
+              <strong>{{ row.category }}</strong>
+              <div class="category-stats">
+                <span class="pill">{{ row.total_count }} total</span>
+                <span class="pill sold">{{ row.financial_count }} sold/refunded</span>
+                <span class="pill listed">{{ row.active_count }} active</span>
+                {% if row.returned_count %}<span class="pill canceled">{{ row.returned_count }} refunded</span>{% endif %}
+              </div>
+            </div>
+            <div class="category-profit {% if row.profit < 0 %}money-negative{% else %}money-positive{% endif %}">
+              ${{ "%.2f"|format(row.profit) }}
+            </div>
+          </div>
+        {% else %}
+          <div class="small">No categories yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
