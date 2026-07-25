@@ -4043,6 +4043,11 @@ def create_app():
             (Item.returned.is_(False))
         )
         returned_expr = _returned_expr()
+        financial_item_expr = (
+            (Item.sold.is_(True)) &
+            (Item.canceled.is_(False)) &
+            ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
+        )
         active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.returned.is_(False))
         listed_expr = (Item.ebay_item_number.isnot(None)) & (Item.ebay_item_number != "")
 
@@ -4084,11 +4089,16 @@ def create_app():
             sold_items_q = sold_items_q.filter(*sold_date_filters)
         sold_items = sold_items_q.count()
 
+        financial_items_q = Item.query.filter(financial_item_expr)
+        if sold_date_filters:
+            financial_items_q = financial_items_q.filter(*sold_date_filters)
+        financial_items = financial_items_q.count()
+
         sold_rate_pct = (sold_items / total_items * 100.0) if total_items else 0.0
 
         total_profit_q = (
             db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
-            .filter(confirmed_sold_expr)
+            .filter(financial_item_expr)
         )
         if sold_date_filters:
             total_profit_q = total_profit_q.filter(*sold_date_filters)
@@ -4097,7 +4107,7 @@ def create_app():
         ytd_start = today.replace(month=1, day=1)
         ytd_profit = float(
             db.session.query(func.coalesce(func.sum(profit_expr), 0.0))
-            .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
+            .filter(financial_item_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
             .scalar() or 0.0
         )
         ytd_sold_items = int(
@@ -4105,13 +4115,7 @@ def create_app():
             .filter(confirmed_sold_expr, Item.date_sold.isnot(None), Item.date_sold >= ytd_start, Item.date_sold <= today)
             .count()
         )
-        avg_profit_per_sold = (total_profit / sold_items) if sold_items else 0.0
-
-        financial_item_expr = (
-            (Item.sold.is_(True)) &
-            (Item.canceled.is_(False)) &
-            ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
-        )
+        avg_profit_per_sold = (total_profit / financial_items) if financial_items else 0.0
         shipping_shortfall_expr = case(
             (
                 (Item.buyer_paid_amount.isnot(None)) &
@@ -4213,7 +4217,7 @@ def create_app():
                 func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
                 func.avg(profit_expr).label("avg_profit"),
             )
-            .filter(confirmed_sold_expr)
+            .filter(financial_item_expr)
         )
         if sold_date_filters:
             sold_metrics_q = sold_metrics_q.filter(*sold_date_filters)
@@ -4303,7 +4307,7 @@ def create_app():
             func.coalesce(func.sum(profit_expr), 0.0).label("total_profit"),
             func.avg(profit_expr).label("avg_profit"),
             func.avg(days_to_sell_expr).label("avg_days_to_sell"),
-        ).filter(confirmed_sold_expr)
+        ).filter(financial_item_expr)
 
         if sold_date_filters:
             src_sold_q = src_sold_q.filter(*sold_date_filters)
@@ -4397,7 +4401,7 @@ def create_app():
                 func.coalesce(func.sum(Item.ad_fee), 0.0).label("ad_fee"),
                 func.count(Item.sku).label("sold_count"),
             )
-            .filter(confirmed_sold_expr, Item.date_sold.isnot(None))
+            .filter(financial_item_expr, Item.date_sold.isnot(None))
         )
         if sold_date_filters:
             trend_q = trend_q.filter(*sold_date_filters)
@@ -4458,7 +4462,7 @@ def create_app():
                 days_to_sell_expr.label("days_to_sell"),
                 Item.date_sold.label("date_sold"),
             )
-            .filter(confirmed_sold_expr)
+            .filter(financial_item_expr)
         )
         if sold_date_filters:
             top_q = top_q.filter(*sold_date_filters)
@@ -4562,7 +4566,7 @@ def create_app():
                 profit_expr.label("profit"),
                 Item.date_sold.label("date_sold"),
             )
-            .filter(confirmed_sold_expr)
+            .filter(financial_item_expr)
             .filter(profit_expr < 0)
         )
         if sold_date_filters:
@@ -4600,8 +4604,8 @@ def create_app():
                 }
             )
 
-        negative_profit_count_q = db.session.query(func.count(Item.sku)).filter(confirmed_sold_expr, profit_expr < 0)
-        negative_profit_total_q = db.session.query(func.coalesce(func.sum(profit_expr), 0.0)).filter(confirmed_sold_expr, profit_expr < 0)
+        negative_profit_count_q = db.session.query(func.count(Item.sku)).filter(financial_item_expr, profit_expr < 0)
+        negative_profit_total_q = db.session.query(func.coalesce(func.sum(profit_expr), 0.0)).filter(financial_item_expr, profit_expr < 0)
         if sold_date_filters:
             negative_profit_count_q = negative_profit_count_q.filter(*sold_date_filters)
             negative_profit_total_q = negative_profit_total_q.filter(*sold_date_filters)
@@ -4638,6 +4642,7 @@ def create_app():
             "refund_total": refund_total,
             "canceled_items": canceled_items,
             "sold_items": sold_items,
+            "financial_items": financial_items,
             "sold_rate_pct": sold_rate_pct,
             "total_profit": float(total_profit),
             "selected_range_label": selected_range_label,

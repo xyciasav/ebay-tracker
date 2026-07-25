@@ -192,7 +192,10 @@
     <div class="card hero-profit">
       <label>Total Profit - {{ kpis.selected_range_label }}</label>
       <div class="value {% if kpis.total_profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(kpis.total_profit) }}</div>
-      <div class="small">{{ kpis.sold_items }} confirmed sold item{{ '' if kpis.sold_items == 1 else 's' }} in this view.</div>
+      <div class="small">
+        {{ kpis.sold_items }} confirmed sold item{{ '' if kpis.sold_items == 1 else 's' }}
+        {% if kpis.financial_items > kpis.sold_items %} · refunds/returns included{% endif %}
+      </div>
       <div class="profit-context">
         <span class="profit-pill"><strong>{{ kpis.ytd_year }} YTD:</strong> ${{ "%.2f"|format(kpis.ytd_profit) }} · {{ kpis.ytd_sold_items }} sold</span>
       </div>
@@ -205,7 +208,7 @@
     <div class="card mini-kpi">
       <label>Avg profit</label>
       <strong>${{ "%.2f"|format(kpis.avg_profit_per_sold) }}</strong>
-      <div class="small">Per confirmed sold item</div>
+      <div class="small">Per net financial item</div>
     </div>
     <div class="card mini-kpi">
       <label>Avg days</label>
