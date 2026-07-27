@@ -13,6 +13,8 @@
       --border:#e7ded1;
       --accent:#2563eb;
       --accent-dark:#1d4ed8;
+      --success:#15803d;
+      --sale:#dc2626;
       --soft:#f1ece4;
       --shadow:0 18px 45px rgba(31,41,51,.08);
     }
@@ -28,14 +30,29 @@
     a{ color:inherit; }
     .store-wrap{ width:min(1180px, calc(100% - 28px)); margin:0 auto; padding:24px 0 40px; }
     .store-hero{
-      display:flex;
-      justify-content:space-between;
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) minmax(260px, 380px);
       gap:18px;
-      align-items:flex-end;
+      align-items:stretch;
       margin-bottom:18px;
     }
     h1{ margin:0; font-size:clamp(34px, 7vw, 64px); letter-spacing:-.06em; line-height:.95; }
     .tagline{ color:var(--muted); margin-top:10px; max-width:650px; font-size:16px; }
+    .hero-panel{
+      background:linear-gradient(135deg, rgba(37,99,235,.10), rgba(21,128,61,.10)), var(--card);
+      border:1px solid var(--border);
+      border-radius:24px;
+      padding:18px;
+      box-shadow:var(--shadow);
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap:14px;
+    }
+    .hero-stat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .hero-stat{ background:#fff; border:1px solid var(--border); border-radius:16px; padding:12px; }
+    .hero-stat strong{ display:block; font-size:24px; letter-spacing:-.04em; }
+    .hero-stat span{ color:var(--muted); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
     .search-card, .feature-card{
       background:var(--card);
       border:1px solid var(--border);
@@ -97,10 +114,37 @@
       font-weight:700;
     }
     .chip.active{ color:#fff; background:var(--accent); border-color:var(--accent); }
+    .department-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fill, minmax(190px, 1fr));
+      gap:12px;
+      margin-top:12px;
+    }
+    .department-card{
+      position:relative;
+      min-height:118px;
+      border:1px solid var(--border);
+      border-radius:18px;
+      overflow:hidden;
+      background:var(--card);
+      box-shadow:var(--shadow);
+      color:#fff;
+      text-decoration:none;
+      display:flex;
+      align-items:flex-end;
+    }
+    .department-card img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:saturate(.95); transform:scale(1.03); }
+    .department-card::after{ content:""; position:absolute; inset:0; background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.12)); }
+    .department-card-body{ position:relative; z-index:1; padding:13px; width:100%; }
+    .department-card strong{ display:block; font-size:18px; letter-spacing:-.03em; }
+    .department-card span{ display:inline-flex; margin-top:5px; padding:3px 7px; border-radius:999px; background:rgba(255,255,255,.18); font-size:12px; font-weight:800; }
+    .department-card.placeholder{ color:var(--text); background:linear-gradient(135deg, rgba(37,99,235,.10), rgba(21,128,61,.10)), var(--card); }
+    .department-card.placeholder::after{ display:none; }
+    .department-card.active{ outline:3px solid var(--accent); outline-offset:2px; }
     .store-grid{
       display:grid;
-      grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
-      gap:16px;
+      grid-template-columns:repeat(auto-fill, minmax(250px, 1fr));
+      gap:18px;
     }
     .store-grid.compact{
       grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
@@ -115,6 +159,7 @@
       display:flex;
       flex-direction:column;
       min-width:0;
+      position:relative;
     }
     .store-photo{
       height:230px;
@@ -137,12 +182,12 @@
       -webkit-box-orient:vertical;
       overflow:hidden;
     }
-    .store-meta{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:auto; }
+    .store-meta{ display:flex; justify-content:space-between; gap:10px; align-items:flex-end; margin-top:auto; }
     .store-actions{ display:flex; gap:8px; flex-wrap:wrap; }
     .price{ font-size:22px; font-weight:850; letter-spacing:-.03em; }
     .price-stack{ display:flex; flex-direction:column; gap:3px; min-width:0; }
     .ebay-price{ color:var(--muted); font-size:13px; text-decoration:line-through; }
-    .direct-price{ font-size:22px; font-weight:900; letter-spacing:-.04em; color:#15803d; }
+    .direct-price{ font-size:22px; font-weight:900; letter-spacing:-.04em; color:var(--success); }
     .discount-badge{
       display:inline-flex;
       align-items:center;
@@ -158,6 +203,9 @@
     }
     .direct-note{ color:var(--muted); font-size:12px; }
     .category{ color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .card-badges{ position:absolute; top:10px; left:10px; right:10px; display:flex; justify-content:space-between; gap:8px; z-index:2; pointer-events:none; }
+    .card-badge{ border-radius:999px; padding:5px 8px; background:rgba(255,255,255,.92); color:var(--text); font-size:11px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,.10); }
+    .card-badge.sale{ background:#fee2e2; color:var(--sale); }
     .empty{
       grid-column:1 / -1;
       background:var(--card);
@@ -170,6 +218,7 @@
     footer{ color:var(--muted); font-size:13px; text-align:center; margin-top:28px; }
     @media (max-width:640px){
       .store-hero{ display:block; }
+      .hero-panel{ margin-top:14px; }
       form{ display:block; }
       form .btn{ width:100%; margin-top:8px; }
       .field{ min-width:0; margin-bottom:8px; }
@@ -186,12 +235,24 @@
     <section class="store-hero">
       <div>
         <h1>Dash of Joy Store</h1>
-        <div class="tagline">Available eBay listings, collected in one simple browsing page.</div>
+        <div class="tagline">Browse available listings in a cleaner, direct-buy friendly storefront.</div>
         {% if direct_discount_percent > 0 %}
           <div class="tagline">Want to buy direct? Direct prices are usually {{ "%.0f"|format(direct_discount_percent) }}% below eBay, with occasional item-specific deals.</div>
         {% endif %}
       </div>
-      <a class="btn secondary" href="https://www.ebay.com/usr/dashofjoy" target="_blank" rel="noopener noreferrer">View eBay Profile</a>
+      <aside class="hero-panel">
+        <div class="hero-stat-grid">
+          <div class="hero-stat">
+            <span>Available</span>
+            <strong>{{ items|length }}</strong>
+          </div>
+          <div class="hero-stat">
+            <span>Departments</span>
+            <strong>{{ categories|length }}</strong>
+          </div>
+        </div>
+        <a class="btn secondary" href="https://www.ebay.com/usr/dashofjoy" target="_blank" rel="noopener noreferrer">View eBay Profile</a>
+      </aside>
     </section>
 
     <section class="search-card">
@@ -205,7 +266,7 @@
           <select name="category">
             <option value="">All departments</option>
             {% for category in categories %}
-              <option value="{{ category }}" {% if category == category_filter %}selected{% endif %}>{{ category }}</option>
+              <option value="{{ category.label }}" {% if category.label == category_filter %}selected{% endif %}>{{ category.label }} ({{ category.count }})</option>
             {% endfor %}
           </select>
         </div>
@@ -222,15 +283,73 @@
         <button class="btn" type="submit">Search</button>
         {% if q or category_filter or sort != "newest" %}<a class="btn secondary" href="{{ url_for('public_store') }}">Clear</a>{% endif %}
       </form>
-      {% if categories %}
-        <div class="chips" aria-label="Browse by category">
-          <a class="chip {% if not category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, sort=sort) }}">All departments</a>
+    </section>
+
+    {% if categories %}
+      <section class="feature-card">
+        <div class="section-head" style="margin-top:0;">
+          <div>
+            <h2>Shop by department</h2>
+            <div class="small">Customer-friendly buckets based on what is currently listed.</div>
+          </div>
+          {% if category_filter %}<a class="btn secondary" href="{{ url_for('public_store', q=q, sort=sort) }}">All departments</a>{% endif %}
+        </div>
+        <div class="department-grid">
           {% for category in categories %}
-            <a class="chip {% if category == category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, category=category, sort=sort) }}">{{ category }}</a>
+            {% set feature = category.featured_item %}
+            {% set image = feature.images[0] if feature and feature.images else none %}
+            <a class="department-card {% if not image %}placeholder{% endif %} {% if category.label == category_filter %}active{% endif %}" href="{{ url_for('public_store', q=q, category=category.label, sort=sort) }}">
+              {% if image %}
+                <img src="{{ url_for('public_store_image', image_id=image.id) }}" alt="{{ category.label }}" loading="lazy" decoding="async">
+              {% endif %}
+              <div class="department-card-body">
+                <strong>{{ category.label }}</strong>
+                <span>{{ category.count }} item{{ '' if category.count == 1 else 's' }}</span>
+              </div>
+            </a>
           {% endfor %}
         </div>
-      {% endif %}
-    </section>
+      </section>
+    {% endif %}
+
+    {% if featured_deals and not q and not category_filter %}
+      <section class="feature-card">
+        <div class="section-head" style="margin-top:0;">
+          <div>
+            <h2>Best direct-buy deals</h2>
+            <div class="small">Largest savings compared with the eBay listing price.</div>
+          </div>
+        </div>
+        <div class="store-grid compact">
+          {% for item in featured_deals %}
+            {% set image = item.images[0] if item.images else none %}
+            {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number %}
+            <article class="store-card">
+              <div class="card-badges"><span class="card-badge sale">Save ${{ "%.0f"|format(item.direct_discount_amount) }}</span></div>
+              <a class="store-photo" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">
+                {% if image %}
+                  <img src="{{ url_for('public_store_image', image_id=image.id) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">
+                {% else %}
+                  <span>No photo yet</span>
+                {% endif %}
+              </a>
+              <div class="store-body">
+                <h2 class="store-title">{{ item.item_name }}</h2>
+                <div class="category">{{ item.store_department }}</div>
+                <div class="store-meta">
+                  <div class="price-stack">
+                    <div class="ebay-price">{% if item.sale_price is not none %}eBay ${{ "%.2f"|format(item.sale_price) }}{% else %}eBay price on listing{% endif %}</div>
+                    <div class="direct-price">${{ "%.2f"|format(item.direct_price) }} <span class="discount-badge">{{ "%.0f"|format(item.direct_discount_percent) }}% off</span></div>
+                    <div class="direct-note">Message me to buy direct</div>
+                  </div>
+                  <a class="btn" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">eBay</a>
+                </div>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
 
     {% if sort == "newest" and not q and not category_filter and new_arrivals %}
       <section class="feature-card">
@@ -245,6 +364,10 @@
             {% set image = item.images[0] if item.images else none %}
             {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number %}
             <article class="store-card">
+              <div class="card-badges">
+                <span class="card-badge">New arrival</span>
+                {% if item.direct_discount_amount > 0 %}<span class="card-badge sale">Save ${{ "%.0f"|format(item.direct_discount_amount) }}</span>{% endif %}
+              </div>
               <a class="store-photo" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">
                 {% if image %}
                   <img src="{{ url_for('public_store_image', image_id=image.id) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">
@@ -288,6 +411,10 @@
         {% set image = item.images[0] if item.images else none %}
         {% set ebay_url = 'https://www.ebay.com/itm/' ~ item.ebay_item_number %}
         <article class="store-card">
+          <div class="card-badges">
+            {% if item.store_department %}<span class="card-badge">{{ item.store_department }}</span>{% endif %}
+            {% if item.direct_discount_amount > 0 %}<span class="card-badge sale">Save ${{ "%.0f"|format(item.direct_discount_amount) }}</span>{% endif %}
+          </div>
           <a class="store-photo" href="{{ ebay_url }}" target="_blank" rel="noopener noreferrer">
             {% if image %}
               <img src="{{ url_for('public_store_image', image_id=image.id) }}" alt="{{ item.item_name }}" loading="lazy" decoding="async">

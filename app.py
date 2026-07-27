@@ -3318,23 +3318,24 @@ def create_app():
         )
 
     def _public_store_department(item):
-        text = " ".join([
-            item.item_name or "",
+        category_text = " ".join([
             item.category or "",
             item.sub_category or "",
             item.ebay_category or "",
         ]).lower()
+        title_text = (item.item_name or "").lower()
+        text = f"{category_text} {title_text}".strip()
         rules = [
-            ("Video Games", ("video game", "nintendo", "playstation", "xbox", "wii", "switch", "console", "controller", "gamecube", "sega")),
-            ("Board Games & Toys", ("board game", "card game", "party game", "toy", "figure", "figurine", "doll", "plush", "lego", "puzzle", "action figure")),
+            ("Video Games", ("video games", "video game", "nintendo", "playstation", "xbox", "wii", "switch", "console", "controller", "gamecube", "sega")),
+            ("Toys, Games & Figures", ("toys & hobbies", "toy", "toys", "board game", "card game", "party game", "figure", "figurine", "doll", "plush", "lego", "puzzle", "action figure", "game board")),
             ("Trading Cards", ("trading card", "sports card", "pokemon", "mtg", "magic the gathering", "yugioh", "card lot")),
-            ("Books", ("book", "books", "novel", "hardcover", "paperback", "manga", "comic", "guide", "manual")),
+            ("Books", ("books", "book", "novel", "hardcover", "paperback", "manga", "comic", "guide", "manual")),
             ("Movies & Music", ("dvd", "blu-ray", "bluray", "vhs", "cassette", "cd", "vinyl", "record", "album", "movie", "music")),
             ("Clothing", ("shirt", "t-shirt", "tee", "hoodie", "jacket", "pants", "jeans", "hat", "cap", "shoes", "dress", "sweater", "clothing")),
             ("Electronics", ("electronics", "computer", "pc", "laptop", "tablet", "phone", "camera", "scanner", "printer", "receiver", "speaker", "headphone", "gpu", "graphics card")),
             ("Collectibles", ("collectible", "collectibles", "vintage", "memorabilia", "ornament", "coin", "stamp", "rare")),
             ("Home & Decor", ("home", "decor", "kitchen", "glass", "ceramic", "porcelain", "vase", "bowl", "plate", "mug", "lamp", "art")),
-            ("Sports & Outdoors", ("sport", "sports", "golf", "baseball", "football", "basketball", "fishing", "camping", "outdoor")),
+            ("Sports & Outdoors", ("sport", "sports", "golf", "baseball", "football", "basketball", "balls", "fishing", "camping", "outdoor")),
             ("Tools & Parts", ("tool", "tools", "part", "parts", "hardware", "automotive", "cable", "adapter", "charger")),
         ]
         for label, keywords in rules:
@@ -3536,15 +3537,34 @@ def create_app():
 
         all_store_items = _public_store_query().order_by(Item.date_listed.desc(), Item.sku.desc()).all()
         category_order = [
-            "Video Games", "Board Games & Toys", "Trading Cards", "Books", "Movies & Music",
+            "Video Games", "Toys, Games & Figures", "Trading Cards", "Books", "Movies & Music",
             "Clothing", "Electronics", "Collectibles", "Home & Decor", "Sports & Outdoors",
             "Tools & Parts", "Other",
         ]
-        category_set = set()
+        category_counts = {}
+        category_featured = {}
         for item in all_store_items:
             _decorate_public_store_item(item, direct_discount_percent)
-            category_set.add(item.store_department)
-        categories = [label for label in category_order if label in category_set]
+            category_counts[item.store_department] = category_counts.get(item.store_department, 0) + 1
+            category_featured.setdefault(item.store_department, item)
+        categories = [
+            {
+                "label": label,
+                "count": category_counts[label],
+                "featured_item": category_featured.get(label),
+            }
+            for label in category_order
+            if label in category_counts
+        ]
+        extras = sorted(label for label in category_counts if label not in category_order)
+        categories.extend(
+            {
+                "label": label,
+                "count": category_counts[label],
+                "featured_item": category_featured.get(label),
+            }
+            for label in extras
+        )
 
         items = query.all()
         for item in items:
@@ -3604,6 +3624,15 @@ def create_app():
                 reverse=True,
             )
         new_arrivals = all_store_items[:6]
+        featured_deals = sorted(
+            [item for item in all_store_items if float(item.direct_discount_amount or 0.0) > 0],
+            key=lambda item: (
+                float(item.direct_discount_amount or 0.0),
+                float(item.direct_discount_percent or 0.0),
+                item.sku or 0,
+            ),
+            reverse=True,
+        )[:4]
         return render_template(
             "store.html",
             items=items,
@@ -3612,6 +3641,7 @@ def create_app():
             category_filter=category_filter,
             sort=sort,
             new_arrivals=new_arrivals,
+            featured_deals=featured_deals,
             direct_discount_percent=direct_discount_percent,
         )
 
