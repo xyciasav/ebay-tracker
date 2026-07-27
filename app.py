@@ -4174,6 +4174,15 @@ def create_app():
             .filter(active_unsold_expr, listed_expr)
             .scalar() or 0.0
         )
+        listed_inventory_cost = float(
+            db.session.query(func.coalesce(func.sum(Item.cog), 0.0))
+            .filter(active_unsold_expr, listed_expr)
+            .scalar() or 0.0
+        )
+        listed_potential_profit = unsold_listed_value - listed_inventory_cost
+        listed_inventory_markup_pct = (listed_potential_profit / listed_inventory_cost * 100.0) if listed_inventory_cost else 0.0
+        listed_inventory_margin_pct = (listed_potential_profit / unsold_listed_value * 100.0) if unsold_listed_value else 0.0
+        listed_inventory_scale = max(unsold_listed_value, listed_inventory_cost, abs(listed_potential_profit), 1.0)
 
         missing_sold_review = {
             "buyer_paid": Item.query.filter(_sold_review_expr(), Item.buyer_paid_amount.is_(None)).count(),
@@ -4872,6 +4881,11 @@ def create_app():
             "avg_days_to_sell": float(avg_days_to_sell),
             "unsold_inventory_cost": unsold_inventory_cost,
             "unsold_listed_value": unsold_listed_value,
+            "listed_inventory_cost": listed_inventory_cost,
+            "listed_potential_profit": listed_potential_profit,
+            "listed_inventory_markup_pct": listed_inventory_markup_pct,
+            "listed_inventory_margin_pct": listed_inventory_margin_pct,
+            "listed_inventory_scale": listed_inventory_scale,
             "missing_sold_review": missing_sold_review,
             "best_source": best_source,
             "best_category": best_category,

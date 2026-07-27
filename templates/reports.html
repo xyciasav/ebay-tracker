@@ -83,6 +83,17 @@
   .bar-fill.ads{ background:color-mix(in srgb, var(--warning) 70%, var(--accent)); }
   .bar-fill.refunds{ background:var(--danger); }
   .bar-value{ text-align:right; font-weight:700; }
+  .inventory-value-card{
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--success) 12%, transparent), transparent 42%),
+      var(--card);
+  }
+  .inventory-money-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; margin-top:12px; }
+  .inventory-money-tile{ border:1px solid var(--border2); border-radius:14px; background:var(--soft); padding:11px; min-width:0; }
+  .inventory-money-tile label{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .inventory-money-tile strong{ display:block; margin-top:5px; font-size:24px; letter-spacing:-.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .inventory-compare{ display:grid; grid-template-columns:1fr; gap:8px; margin-top:14px; }
+  .inventory-compare-row{ display:grid; grid-template-columns:minmax(100px, 145px) 1fr minmax(82px, auto); gap:10px; align-items:center; }
   .finance-strip{ display:grid; grid-template-columns:repeat(8, minmax(0, 1fr)); gap:8px; }
   .finance-tile{ border:1px solid var(--border2); border-radius:14px; padding:10px; background:var(--card); min-width:0; }
   .finance-tile label{ color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
@@ -133,6 +144,7 @@
     .action-card.wide{ grid-column:auto; }
     .action-card.wide .action-list{ grid-template-columns:1fr; }
     .season-row{ grid-template-columns:1fr; }
+    .inventory-money-grid{ grid-template-columns:1fr; }
     .action-card,
     .action-card.compact,
     .action-card.wide{ max-height:none; }
@@ -364,6 +376,53 @@
             <strong>{{ p.count }}</strong>
           </a>
         {% endfor %}
+      </div>
+    </div>
+
+    <div class="card inventory-value-card trend-panel">
+      <div class="panel-heading">
+        <div>
+          <div class="eyebrow">Listed inventory value</div>
+          <h3>Cash tied up vs upside</h3>
+        </div>
+        <div class="small">{{ kpis.listed_items }} listed item{{ '' if kpis.listed_items == 1 else 's' }}</div>
+      </div>
+      <div class="inventory-money-grid">
+        <div class="inventory-money-tile">
+          <label>Listed asking value</label>
+          <strong>${{ "%.2f"|format(kpis.unsold_listed_value) }}</strong>
+          <div class="small">If all listed items sell at current prices</div>
+        </div>
+        <div class="inventory-money-tile">
+          <label>COG tied up</label>
+          <strong>${{ "%.2f"|format(kpis.listed_inventory_cost) }}</strong>
+          <div class="small">Your cash sitting in listed inventory</div>
+        </div>
+        <div class="inventory-money-tile">
+          <label>Potential gross profit</label>
+          <strong class="{% if kpis.listed_potential_profit < 0 %}money-negative{% else %}money-positive{% endif %}">${{ "%.2f"|format(kpis.listed_potential_profit) }}</strong>
+          <div class="small">Before shipping, eBay fees, ads, and discounts</div>
+        </div>
+      </div>
+      <div class="inventory-compare">
+        <div class="inventory-compare-row">
+          <div class="bar-label">Asking value</div>
+          <div class="bar-track"><div class="bar-fill" style="width: {{ kpis.unsold_listed_value * 100 / kpis.listed_inventory_scale }}%;"></div></div>
+          <div class="bar-value">${{ "%.0f"|format(kpis.unsold_listed_value) }}</div>
+        </div>
+        <div class="inventory-compare-row">
+          <div class="bar-label">COG tied up</div>
+          <div class="bar-track"><div class="bar-fill cog" style="width: {{ kpis.listed_inventory_cost * 100 / kpis.listed_inventory_scale }}%;"></div></div>
+          <div class="bar-value">${{ "%.0f"|format(kpis.listed_inventory_cost) }}</div>
+        </div>
+        <div class="inventory-compare-row">
+          <div class="bar-label">Potential gross</div>
+          <div class="bar-track"><div class="bar-fill {% if kpis.listed_potential_profit < 0 %}negative{% else %}shipping{% endif %}" style="width: {{ kpis.listed_potential_profit|abs * 100 / kpis.listed_inventory_scale }}%;"></div></div>
+          <div class="bar-value">${{ "%.0f"|format(kpis.listed_potential_profit) }}</div>
+        </div>
+      </div>
+      <div class="small" style="margin-top:10px;">
+        Potential margin {{ "%.1f"|format(kpis.listed_inventory_margin_pct) }}% · markup on COG {{ "%.1f"|format(kpis.listed_inventory_markup_pct) }}%.
       </div>
     </div>
 
