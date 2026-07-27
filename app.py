@@ -3324,13 +3324,12 @@ def create_app():
             item.ebay_category or "",
         ]).lower()
         title_text = (item.item_name or "").lower()
-        text = f"{category_text} {title_text}".strip()
         rules = [
             ("Video Games", ("video games", "video game", "nintendo", "playstation", "xbox", "wii", "switch", "console", "controller", "gamecube", "sega")),
             ("Toys, Games & Figures", ("toys & hobbies", "toy", "toys", "board game", "card game", "party game", "figure", "figurine", "doll", "plush", "lego", "puzzle", "action figure", "game board")),
             ("Trading Cards", ("trading card", "sports card", "pokemon", "mtg", "magic the gathering", "yugioh", "card lot")),
             ("Books", ("books", "book", "novel", "hardcover", "paperback", "manga", "comic", "guide", "manual")),
-            ("Movies & Music", ("dvd", "blu-ray", "bluray", "vhs", "cassette", "cd", "vinyl", "record", "album", "movie", "music")),
+            ("Movies & Music", ("dvd", "dvds", "blu-ray", "blu ray", "bluray", "vhs", "cassette", "cd", "vinyl", "record", "album", "movie", "movies", "music", "disc", "discs")),
             ("Clothing", ("shirt", "t-shirt", "tee", "hoodie", "jacket", "pants", "jeans", "hat", "cap", "shoes", "dress", "sweater", "clothing")),
             ("Electronics", ("electronics", "computer", "pc", "laptop", "tablet", "phone", "camera", "scanner", "printer", "receiver", "speaker", "headphone", "gpu", "graphics card")),
             ("Collectibles", ("collectible", "collectibles", "vintage", "memorabilia", "ornament", "coin", "stamp", "rare")),
@@ -3338,9 +3337,14 @@ def create_app():
             ("Sports & Outdoors", ("sport", "sports", "golf", "baseball", "football", "basketball", "balls", "fishing", "camping", "outdoor")),
             ("Tools & Parts", ("tool", "tools", "part", "parts", "hardware", "automotive", "cable", "adapter", "charger")),
         ]
-        for label, keywords in rules:
-            if any(keyword in text for keyword in keywords):
-                return label
+        scores = []
+        for index, (label, keywords) in enumerate(rules):
+            category_hits = sum(1 for keyword in keywords if keyword in category_text)
+            title_hits = sum(1 for keyword in keywords if keyword in title_text)
+            if category_hits or title_hits:
+                scores.append((category_hits * 10 + title_hits, -index, label))
+        if scores:
+            return max(scores)[2]
         return "Other"
 
     def _app_setting_float(key, default, min_value=None, max_value=None, env_key=None):
