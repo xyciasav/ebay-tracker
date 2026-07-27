@@ -6,6 +6,47 @@
   .reports-shell{ display:flex; flex-direction:column; gap:16px; }
   .report-filter{ display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
   .report-filter > div{ min-width:150px; }
+  .report-tabs{ display:flex; flex-direction:column; gap:14px; }
+  .report-tab-input{ position:absolute; opacity:0; pointer-events:none; }
+  .report-tab-labels{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    position:sticky;
+    top:0;
+    z-index:5;
+    padding:8px;
+    border:1px solid var(--border);
+    border-radius:16px;
+    background:color-mix(in srgb, var(--card) 92%, transparent);
+    backdrop-filter:blur(14px);
+  }
+  .report-tab-label{
+    cursor:pointer;
+    border:1px solid var(--border);
+    border-radius:999px;
+    background:var(--btnSecondaryBg);
+    color:var(--btnSecondaryText);
+    padding:9px 12px;
+    font-size:13px;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .report-tab-panel{ display:none; flex-direction:column; gap:16px; }
+  #report-tab-overview:checked ~ .report-tab-labels label[for="report-tab-overview"],
+  #report-tab-trends:checked ~ .report-tab-labels label[for="report-tab-trends"],
+  #report-tab-categories:checked ~ .report-tab-labels label[for="report-tab-categories"],
+  #report-tab-actions:checked ~ .report-tab-labels label[for="report-tab-actions"],
+  #report-tab-details:checked ~ .report-tab-labels label[for="report-tab-details"]{
+    background:var(--btn);
+    color:var(--btnText);
+    border-color:var(--btn);
+  }
+  #report-tab-overview:checked ~ .report-tab-panels #panel-overview,
+  #report-tab-trends:checked ~ .report-tab-panels #panel-trends,
+  #report-tab-categories:checked ~ .report-tab-panels #panel-categories,
+  #report-tab-actions:checked ~ .report-tab-panels #panel-actions,
+  #report-tab-details:checked ~ .report-tab-panels #panel-details{ display:flex; }
   .report-hero{
     display:grid;
     grid-template-columns: minmax(240px, 1.15fr) repeat(4, minmax(140px, .7fr));
@@ -149,6 +190,8 @@
     .action-card.compact,
     .action-card.wide{ max-height:none; }
     .finance-strip{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+    .report-tab-labels{ overflow-x:auto; flex-wrap:nowrap; }
+    .report-tab-label{ flex:0 0 auto; }
   }
   @media (min-width: 901px) and (max-width: 1180px){
     .finance-strip{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
@@ -218,6 +261,24 @@
       </div>
     </form>
   </div>
+
+  <div class="report-tabs">
+    <input class="report-tab-input" type="radio" name="report-tab" id="report-tab-overview" checked>
+    <input class="report-tab-input" type="radio" name="report-tab" id="report-tab-trends">
+    <input class="report-tab-input" type="radio" name="report-tab" id="report-tab-categories">
+    <input class="report-tab-input" type="radio" name="report-tab" id="report-tab-actions">
+    <input class="report-tab-input" type="radio" name="report-tab" id="report-tab-details">
+
+    <div class="report-tab-labels" aria-label="Report sections">
+      <label class="report-tab-label" for="report-tab-overview">Overview</label>
+      <label class="report-tab-label" for="report-tab-trends">Trends</label>
+      <label class="report-tab-label" for="report-tab-categories">Categories</label>
+      <label class="report-tab-label" for="report-tab-actions">Action Items</label>
+      <label class="report-tab-label" for="report-tab-details">Details</label>
+    </div>
+
+    <div class="report-tab-panels">
+      <div class="report-tab-panel" id="panel-overview">
 
   <section class="report-hero">
     <div class="card hero-profit">
@@ -425,7 +486,11 @@
         Potential margin {{ "%.1f"|format(kpis.listed_inventory_margin_pct) }}% · markup on COG {{ "%.1f"|format(kpis.listed_inventory_markup_pct) }}%.
       </div>
     </div>
+  </section>
+      </div>
 
+      <div class="report-tab-panel" id="panel-trends">
+  <section class="visual-grid">
     <div class="card trend-panel">
       <div class="panel-heading">
         <div>
@@ -448,7 +513,9 @@
       {% endif %}
     </div>
   </section>
+      </div>
 
+      <div class="report-tab-panel" id="panel-categories">
   <section class="visual-grid">
     <div class="card">
       <div class="panel-heading">
@@ -550,7 +617,9 @@
       {% endif %}
     </div>
   </section>
+      </div>
 
+      <div class="report-tab-panel" id="panel-actions">
   <section class="action-layout">
     <div class="card action-card compact">
       <div class="panel-heading">
@@ -648,6 +717,10 @@
     </div>
   </section>
 
+      </div>
+
+      <div class="report-tab-panel" id="panel-details">
+
   <section class="visual-grid">
     <div class="card table-panel">
       <div class="panel-heading">
@@ -713,6 +786,9 @@
       </table>
     </div>
   </section>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}
