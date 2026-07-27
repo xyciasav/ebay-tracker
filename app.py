@@ -4521,16 +4521,24 @@ def create_app():
             for idx, category_name in enumerate(top_category_names):
                 values = [profit_by_category_period.get((category_name, period), 0.0) for period in category_periods]
                 points = []
+                marker_points = []
                 for point_idx, value in enumerate(values):
                     x = 50.0 if len(category_periods) == 1 else point_idx * 100.0 / max(len(category_periods) - 1, 1)
                     y = 50.0 - (value * 45.0 / max_category_line_profit)
                     y = max(5.0, min(95.0, y))
                     points.append(f"{x:.2f},{y:.2f}")
+                    marker_points.append({
+                        "x": x,
+                        "y": y,
+                        "value": value,
+                        "period": category_periods[point_idx],
+                    })
                 if points:
                     series.append({
                         "category": category_name,
                         "color": chart_colors[idx % len(chart_colors)],
                         "points": " ".join(points),
+                        "marker_points": marker_points,
                         "latest_profit": values[-1] if values else 0.0,
                     })
             category_line_chart = {
