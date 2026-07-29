@@ -105,9 +105,25 @@
   .line-pill{ border:1px solid var(--border2); border-radius:999px; background:var(--card); padding:5px 8px; font-size:12px; color:var(--muted); }
   .line-dot{ width:9px; height:9px; display:inline-block; border-radius:999px; margin-right:6px; }
   .line-axis{ display:flex; justify-content:space-between; gap:8px; margin-top:8px; color:var(--muted); font-size:11px; }
+  .momentum-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; margin-top:14px; }
+  .momentum-card{ border:1px solid var(--border2); border-radius:14px; background:var(--soft); padding:11px; min-width:0; }
+  .momentum-card-head{ display:flex; justify-content:space-between; gap:8px; align-items:start; }
+  .momentum-card h4{ margin:0; font-size:15px; line-height:1.2; }
+  .momentum-badge{ border-radius:999px; padding:3px 7px; font-size:11px; font-weight:800; white-space:nowrap; }
+  .momentum-badge.up{ color:var(--success); background:color-mix(in srgb, var(--success) 12%, transparent); border:1px solid color-mix(in srgb, var(--success) 35%, var(--border)); }
+  .momentum-badge.down{ color:var(--danger); background:color-mix(in srgb, var(--danger) 12%, transparent); border:1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); }
+  .momentum-badge.flat{ color:var(--muted); background:var(--card); border:1px solid var(--border2); }
+  .momentum-track{ height:7px; border-radius:999px; background:rgba(255,255,255,.04); overflow:hidden; margin:9px 0; }
+  .momentum-fill{ height:100%; background:var(--success); border-radius:999px; }
+  .momentum-fill.down{ background:var(--danger); }
+  .momentum-metrics{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; }
+  .momentum-metric{ border:1px solid var(--border2); border-radius:10px; padding:7px; background:var(--card); min-width:0; }
+  .momentum-metric span{ display:block; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .momentum-metric strong{ display:block; margin-top:3px; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .season-grid{ display:flex; flex-direction:column; gap:10px; }
-  .season-row{ display:grid; grid-template-columns:minmax(120px, 190px) repeat(4, minmax(90px, 1fr)); gap:8px; align-items:stretch; }
-  .season-name{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; align-self:center; }
+  .season-row{ display:grid; grid-template-columns:minmax(170px, 230px) repeat(4, minmax(110px, 1fr)); gap:8px; align-items:stretch; }
+  .season-name{ font-weight:700; min-width:0; align-self:center; }
+  .season-name strong{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .season-cell{ border:1px solid var(--border2); border-radius:12px; padding:8px; background:var(--soft); min-width:0; }
   .season-cell strong{ display:block; font-size:15px; }
   .season-track{ height:6px; border-radius:999px; background:rgba(255,255,255,.04); overflow:hidden; margin-top:6px; }
@@ -562,9 +578,9 @@
       <div class="panel-heading">
         <div>
           <div class="eyebrow">Category momentum</div>
-          <h3>Top categories over time</h3>
+          <h3>Recent vs previous 3 months</h3>
         </div>
-        <div class="small">Net profit · dots show category months</div>
+        <div class="small">Net profit by category · biggest movers first</div>
       </div>
       {% if report_viz.category_line_chart.series %}
         <div class="line-chart-wrap">
@@ -598,20 +614,57 @@
     <div class="card line-chart-card">
       <div class="panel-heading">
         <div>
+          <div class="eyebrow">Biggest movers</div>
+          <h3>Category momentum</h3>
+        </div>
+        <div class="small">Recent 3 months vs the 3 before that</div>
+      </div>
+      {% if report_viz.category_line_chart.momentum_rows %}
+        <div class="momentum-grid">
+          {% for row in report_viz.category_line_chart.momentum_rows %}
+            <div class="momentum-card">
+              <div class="momentum-card-head">
+                <h4><span class="line-dot" style="background:{{ row.color }}"></span>{{ row.category }}</h4>
+                <span class="momentum-badge {{ row.direction }}">
+                  {% if row.delta_profit > 0 %}+${{ "%.0f"|format(row.delta_profit) }}{% elif row.delta_profit < 0 %}-${{ "%.0f"|format(row.delta_abs) }}{% else %}$0{% endif %}
+                </span>
+              </div>
+              <div class="momentum-track"><div class="momentum-fill {% if row.direction == 'down' %}down{% endif %}" style="width:{{ row.delta_width }}%;"></div></div>
+              <div class="momentum-metrics">
+                <div class="momentum-metric"><span>Recent 3 mo</span><strong>${{ "%.0f"|format(row.recent_profit) }}</strong></div>
+                <div class="momentum-metric"><span>Prior 3 mo</span><strong>${{ "%.0f"|format(row.prior_profit) }}</strong></div>
+                <div class="momentum-metric"><span>Avg / item</span><strong>${{ "%.2f"|format(row.avg_profit) }}</strong></div>
+              </div>
+              <div class="small" style="margin-top:8px;">{{ row.total_count }} sold/refunded item{{ '' if row.total_count == 1 else 's' }} in chart window · {{ "%.0f"|format(row.delta_pct) }}% swing</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="small">Need more dated category sales before momentum means anything.</div>
+      {% endif %}
+    </div>
+
+    <div class="card line-chart-card">
+      <div class="panel-heading">
+        <div>
           <div class="eyebrow">Season trends</div>
           <h3>Category profit by season</h3>
         </div>
-        <div class="small">Winter / Spring / Summer / Fall</div>
+        <div class="small">Profit, sales count, and avg profit per item</div>
       </div>
       {% if report_viz.category_season_rows %}
         <div class="season-grid">
           {% for row in report_viz.category_season_rows %}
             <div class="season-row">
-              <div class="season-name" title="{{ row.category }}">{{ row.category }}</div>
+              <div class="season-name" title="{{ row.category }}">
+                <strong>{{ row.category }}</strong>
+                <div class="small">Best: {{ row.best_season }} (${{ "%.0f"|format(row.best_season_profit) }}) · {{ row.total_count }} item{{ '' if row.total_count == 1 else 's' }}</div>
+              </div>
               {% for cell in row.cells %}
                 <div class="season-cell">
                   <div class="small">{{ cell.season }} · {{ cell.count }} item{{ '' if cell.count == 1 else 's' }}</div>
                   <strong class="{% if cell.profit < 0 %}money-negative{% elif cell.profit > 0 %}money-positive{% endif %}">${{ "%.0f"|format(cell.profit) }}</strong>
+                  <div class="small">avg ${{ "%.2f"|format(cell.avg_profit) }}</div>
                   <div class="season-track"><div class="season-fill {% if cell.profit < 0 %}negative{% endif %}" style="width:{{ cell.width }}%;"></div></div>
                 </div>
               {% endfor %}

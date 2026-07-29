@@ -4517,10 +4517,11 @@ def create_app():
         for r in category_chart:
             r["profit_width"] = max(4.0, abs(r["total_profit"]) * 100.0 / max_category_profit)
 
-        top_category_names = [r["category"] for r in category_chart[:5] if r.get("category")]
+        top_category_names = [r["category"] for r in category_chart[:7] if r.get("category")]
         category_line_chart = {
             "periods": [],
             "series": [],
+            "momentum_rows": [],
             "baseline_y": 50,
         }
         category_season_rows = []
@@ -4531,6 +4532,7 @@ def create_app():
                     category_col.label("category"),
                     category_month_expr.label("period"),
                     func.coalesce(func.sum(profit_expr), 0.0).label("profit"),
+                    func.count(Item.sku).label("count"),
                 )
                 .filter(financial_item_expr, Item.date_sold.isnot(None), category_col.in_(top_category_names))
             )
@@ -4546,14 +4548,18 @@ def create_app():
                     category_period_labels.append(period)
 
             profit_by_category_period = {}
+            count_by_category_period = {}
             for r in category_line_rows:
                 if r.period in category_periods:
                     profit_by_category_period[(r.category, r.period)] = float(r.profit or 0.0)
+                    count_by_category_period[(r.category, r.period)] = int(r.count or 0)
             max_category_line_profit = max([abs(v) for v in profit_by_category_period.values()] + [1.0])
-            chart_colors = ["#60a5fa", "#22c55e", "#fbbf24", "#f87171", "#c084fc"]
+            chart_colors = ["#60a5fa", "#22c55e", "#fbbf24", "#f87171", "#c084fc", "#2dd4bf", "#fb923c"]
             series = []
+            momentum_rows = []
             for idx, category_name in enumerate(top_category_names):
                 values = [profit_by_category_period.get((category_name, period), 0.0) for period in category_periods]
+                counts = [count_by_category_period.get((category_name, period), 0) for period in category_periods]
                 points = []
                 marker_points = []
                 for point_idx, value in enumerate(values):
@@ -4575,10 +4581,47 @@ def create_app():
                         "marker_points": marker_points,
                         "latest_profit": values[-1] if values else 0.0,
                     })
+                recent_values = values[-3:]
+                prior_values = values[-6:-3]
+                recent_profit = sum(recent_values)
+                prior_profit = sum(prior_values)
+                delta_profit = recent_profit - prior_profit
+                total_count = sum(counts)
+                total_profit_for_category = sum(values)
+                avg_profit_for_category = (total_profit_for_category / total_count) if total_count else 0.0
+                if prior_profit:
+                    delta_pct = delta_profit * 100.0 / abs(prior_profit)
+                elif recent_profit:
+                    delta_pct = 100.0
+                else:
+                    delta_pct = 0.0
+                momentum_rows.append({
+                    "category": category_name,
+                    "color": chart_colors[idx % len(chart_colors)],
+                    "recent_profit": recent_profit,
+                    "prior_profit": prior_profit,
+                    "delta_profit": delta_profit,
+                    "delta_abs": abs(delta_profit),
+                    "delta_pct": delta_pct,
+                    "total_profit": total_profit_for_category,
+                    "total_count": total_count,
+                    "avg_profit": avg_profit_for_category,
+                })
+            momentum_scale = max([abs(r["delta_profit"]) for r in momentum_rows] + [1.0])
+            for row in momentum_rows:
+                row["delta_width"] = max(4.0, abs(row["delta_profit"]) * 100.0 / momentum_scale) if row["delta_profit"] else 0.0
+                if row["delta_profit"] > 0:
+                    row["direction"] = "up"
+                elif row["delta_profit"] < 0:
+                    row["direction"] = "down"
+                else:
+                    row["direction"] = "flat"
+            momentum_rows.sort(key=lambda x: (x["delta_profit"], x["recent_profit"], x["total_count"]), reverse=True)
             category_line_chart = {
                 "periods": category_periods,
                 "labels": category_period_labels,
                 "series": series,
+                "momentum_rows": momentum_rows,
                 "baseline_y": 50,
             }
 
@@ -4616,15 +4659,26 @@ def create_app():
                 for season in season_order:
                     data = season_map.get((category_name, season), {"profit": 0.0, "count": 0})
                     total_profit_for_category += data["profit"]
+                    avg_profit = (data["profit"] / data["count"]) if data["count"] else 0.0
                     cells.append({
                         "season": season,
                         "profit": data["profit"],
                         "count": data["count"],
+                        "avg_profit": avg_profit,
                         "width": max(4.0, abs(data["profit"]) * 100.0 / max_season_profit) if data["profit"] else 0.0,
                     })
+                total_count_for_category = sum(cell["count"] for cell in cells)
+                best_cell = max(cells, key=lambda cell: (cell["profit"], cell["count"]))
+                worst_cell = min(cells, key=lambda cell: (cell["profit"], -cell["count"]))
                 category_season_rows.append({
                     "category": category_name,
                     "total_profit": total_profit_for_category,
+                    "total_count": total_count_for_category,
+                    "avg_profit": (total_profit_for_category / total_count_for_category) if total_count_for_category else 0.0,
+                    "best_season": best_cell["season"],
+                    "best_season_profit": best_cell["profit"],
+                    "worst_season": worst_cell["season"],
+                    "worst_season_profit": worst_cell["profit"],
                     "cells": cells,
                 })
             category_season_rows.sort(key=lambda x: x["total_profit"], reverse=True)
