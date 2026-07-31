@@ -105,4 +105,9 @@ Notes
 - Docker deployments require `FLASK_SECRET_KEY`, `BASIC_AUTH_USER`, and
   `BASIC_AUTH_PASS` in a local `.env` file. Start with `.env.example` and do
   not commit the resulting `.env` file.
+- On servers or Portainer, set `EBAY_TRACKER_DATA_DIR` to an absolute host path
+  such as `/home/plex/ebay-tracker/data`. The app database is
+  `/data/ebay_tracker.db` inside the container; if `./data` points at a
+  different deploy folder after redeploy, old deleted listings can appear to
+  come back because the container is reading a different SQLite file.
 

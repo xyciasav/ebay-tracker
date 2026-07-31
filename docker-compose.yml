@@ -22,9 +22,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-5.5}
     volumes:
-      - ./data:/app/instance
-      - ./uploads:/app/uploads
-      - ./data:/data
+      - ${EBAY_TRACKER_DATA_DIR:-./data}:/app/instance
+      - ${EBAY_TRACKER_UPLOAD_DIR:-./uploads}:/app/uploads
+      - ${EBAY_TRACKER_DATA_DIR:-./data}:/data
     ports:
       - "5055:5055"
     expose:
