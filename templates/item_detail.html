@@ -64,6 +64,9 @@
           <span class="pill pending">Pending Shipping</span>
         {% elif item.sold %}
           <span class="pill sold">Sold</span>
+          {% if item.date_shipped or item.tracking_number %}
+            <span class="pill sold" title="{% if item.date_shipped %}Shipped {{ item.date_shipped }}{% elif item.tracking_number %}Tracking imported{% endif %}">Shipped</span>
+          {% endif %}
         {% elif item.ebay_item_number %}
           <span class="pill listed">Listed</span>
         {% else %}
