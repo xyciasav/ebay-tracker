@@ -3718,6 +3718,8 @@ def create_app():
             query = query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(~listed_expr)
         elif status_filter == "listed":
             query = query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False)).filter(listed_expr)
+        elif status_filter == "active":
+            query = query.filter(Item.sold.is_(False), Item.canceled.is_(False), Item.returned.is_(False))
         elif status_filter == "canceled":
             query = query.filter(Item.canceled.is_(True))
         else:
@@ -3726,7 +3728,10 @@ def create_app():
         if platform:
             query = query.filter(Item.platform == platform)
         if category:
-            query = query.filter(Item.category == category)
+            if category == "Uncategorized":
+                query = query.filter((Item.category.is_(None)) | (func.trim(Item.category) == ""))
+            else:
+                query = query.filter(Item.category == category)
         if q:
             like = f"%{q}%"
             query = query.filter(
@@ -4008,6 +4013,7 @@ def create_app():
             (Item.canceled.is_(False)) &
             ((Item.sold_confirmed.is_(True)) | (Item.returned.is_(True)))
         )
+        confirmed_sold_expr = _shipped_sold_expr()
         active_unsold_expr = (Item.sold.is_(False)) & (Item.canceled.is_(False)) & (Item.returned.is_(False))
         revenue_expr = case(
             (
@@ -4034,6 +4040,7 @@ def create_app():
                 cat_col.label("category"),
                 func.count(Item.sku).label("total_count"),
                 func.sum(case((financial_item_expr, 1), else_=0)).label("financial_count"),
+                func.sum(case((confirmed_sold_expr, 1), else_=0)).label("sold_count"),
                 func.sum(case((active_unsold_expr, 1), else_=0)).label("active_count"),
                 func.sum(case((returned_expr, 1), else_=0)).label("returned_count"),
                 func.coalesce(func.sum(case((financial_item_expr, profit_expr), else_=0.0)), 0.0).label("profit"),
@@ -4047,6 +4054,7 @@ def create_app():
                 "category": r.category,
                 "total_count": int(r.total_count or 0),
                 "financial_count": int(r.financial_count or 0),
+                "sold_count": int(r.sold_count or 0),
                 "active_count": int(r.active_count or 0),
                 "returned_count": int(r.returned_count or 0),
                 "profit": float(r.profit or 0.0),

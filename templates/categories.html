@@ -9,6 +9,8 @@
   .category-row{ border:1px solid var(--border2); border-radius:14px; padding:12px; background:var(--soft); display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; }
   .category-row strong{ display:block; font-size:17px; }
   .category-stats{ display:flex; gap:6px; flex-wrap:wrap; margin-top:7px; }
+  .category-stats a.pill{ text-decoration:none; }
+  .category-stats a.pill:hover{ transform:translateY(-1px); filter:brightness(1.08); }
   .category-profit{ font-weight:800; font-size:18px; }
   .manager-form{ display:grid; gap:12px; }
   .inline-check{ display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
@@ -82,10 +84,10 @@
             <div>
               <strong>{{ row.category }}</strong>
               <div class="category-stats">
-                <span class="pill">{{ row.total_count }} total</span>
-                <span class="pill sold">{{ row.financial_count }} sold/refunded</span>
-                <span class="pill listed">{{ row.active_count }} active</span>
-                {% if row.returned_count %}<span class="pill canceled">{{ row.returned_count }} refunded</span>{% endif %}
+                <a class="pill" href="{{ url_for('index', status='all', category=row.category) }}">{{ row.total_count }} total</a>
+                <a class="pill sold" href="{{ url_for('index', status='sold', category=row.category, sort='date_sold_desc') }}">{{ row.sold_count }} sold</a>
+                <a class="pill listed" href="{{ url_for('index', status='active', category=row.category) }}">{{ row.active_count }} active</a>
+                {% if row.returned_count %}<a class="pill canceled" href="{{ url_for('index', status='returned', category=row.category, sort='date_sold_desc') }}">{{ row.returned_count }} refunded</a>{% endif %}
               </div>
             </div>
             <div class="category-profit {% if row.profit < 0 %}money-negative{% else %}money-positive{% endif %}">
