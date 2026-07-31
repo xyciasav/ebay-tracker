@@ -341,7 +341,7 @@
             <span class="{% if image %}done{% endif %}">Photo</span>
             <span class="{% if item.cog is not none %}done{% endif %}">Cost</span>
             {% if item.sold %}
-              <span class="{% if item.shipping is not none %}done{% endif %}">Ship</span>
+              <span class="{% if item.date_shipped or item.tracking_number or item.shipping is not none %}done{% endif %}">Ship</span>
               <span class="{% if item.ebay_fee is not none %}done{% endif %}">Fees</span>
             {% else %}
               <span class="{% if item.sale_price is not none %}done{% endif %}">Price</span>
@@ -353,8 +353,6 @@
             <div class="small">Refunded{% if item.refund_amount is not none %}: ${{ '%.2f'|format(item.refund_amount) }}{% endif %}.</div>
           {% elif needs_sold_review %}
             <div class="small">Needs actual COG, shipping, ad fee, eBay fee, or buyer-paid amount.</div>
-          {% elif item.sold and (item.date_shipped or item.tracking_number) %}
-            <div class="small">Shipped{% if item.date_shipped %} {{ item.date_shipped }}{% endif %}{% if item.tracking_number %} · {{ item.tracking_number }}{% endif %}.</div>
           {% endif %}
 
           {% if item.ebay_item_number or item.ebay_custom_label %}
