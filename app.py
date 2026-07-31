@@ -3697,10 +3697,11 @@ def create_app():
             "profit_asc": "Profit low to high",
         }
 
-    def _inventory_query(status_filter="all", platform="", category="", q="", needs_info=False):
+    def _inventory_query(status_filter="all", platform="", category="", source="", q="", needs_info=False):
         status_filter = (status_filter or "all").strip().lower()
         platform = (platform or "").strip()
         category = (category or "").strip()
+        source = (source or "").strip()
         q = (q or "").strip()
 
         query = Item.query
@@ -3732,6 +3733,11 @@ def create_app():
                 query = query.filter((Item.category.is_(None)) | (func.trim(Item.category) == ""))
             else:
                 query = query.filter(Item.category == category)
+        if source:
+            if source == "Unknown":
+                query = query.filter((Item.source_location.is_(None)) | (func.trim(Item.source_location) == ""))
+            else:
+                query = query.filter(Item.source_location == source)
         if q:
             like = f"%{q}%"
             query = query.filter(
@@ -3806,6 +3812,7 @@ def create_app():
             get_param("status", "all"),
             get_param("platform"),
             get_param("category"),
+            get_param("source"),
             get_param("q"),
             get_param("needs_info") == "1",
         )
@@ -3836,6 +3843,7 @@ def create_app():
         view_mode = request.args.get("view", "cards").strip().lower()
         platform = request.args.get("platform", "").strip()
         category = request.args.get("category", "").strip()
+        source = request.args.get("source", "").strip()
         sort = request.args.get("sort", "newest").strip().lower()
         needs_info = request.args.get("needs_info") == "1"
         q = request.args.get("q", "").strip()
@@ -3844,7 +3852,7 @@ def create_app():
             view_mode = "cards"
 
         listed_expr = _listed_expr()
-        query, status_filter = _inventory_query(status_filter, platform, category, q, needs_info)
+        query, status_filter = _inventory_query(status_filter, platform, category, source, q, needs_info)
         sort_options = _inventory_sort_options()
         query, sort = _apply_inventory_sort(query, sort)
 
@@ -3876,6 +3884,7 @@ def create_app():
             view_mode=view_mode,
             platform_filter=platform,
             category_filter=category,
+            source_filter=source,
             needs_info=needs_info,
             sort=sort,
             sort_options=sort_options,

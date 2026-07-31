@@ -556,9 +556,9 @@
       <div class="bar-list">
         {% for r in report_viz.source_chart %}
           <div class="bar-row">
-            <div class="bar-label" title="{{ r.source }}">{{ r.source }}</div>
+            <div class="bar-label" title="{{ r.source }}"><a href="{{ url_for('index', status='all', source=r.source) }}">{{ r.source }}</a></div>
             <div class="bar-track"><div class="bar-fill {% if r.total_profit < 0 %}negative{% endif %}" style="width: {{ r.profit_width }}%;"></div></div>
-            <div class="bar-value">${{ "%.0f"|format(r.total_profit) }}</div>
+            <div class="bar-value"><a href="{{ url_for('index', status='sold', source=r.source, sort='profit_desc') }}">${{ "%.0f"|format(r.total_profit) }}</a></div>
           </div>
         {% else %}
           <div class="small">No source profit yet.</div>
@@ -813,11 +813,11 @@
         <tbody>
           {% for r in by_source[:10] %}
             <tr>
-              <td>{{ r.source }}</td>
-              <td>{{ r.sold_count }}</td>
-              <td>{{ r.unsold_count }}</td>
+              <td><a href="{{ url_for('index', status='all', source=r.source) }}">{{ r.source }}</a></td>
+              <td><a href="{{ url_for('index', status='sold', source=r.source, sort='profit_desc') }}">{{ r.sold_count }}</a></td>
+              <td><a href="{{ url_for('index', status='active', source=r.source) }}">{{ r.unsold_count }}</a></td>
               <td>{{ "%.1f"|format(r.sold_rate_pct) }}%</td>
-              <td>${{ "%.2f"|format(r.total_profit) }}</td>
+              <td><a href="{{ url_for('index', status='sold', source=r.source, sort='profit_desc') }}">${{ "%.2f"|format(r.total_profit) }}</a></td>
             </tr>
           {% endfor %}
         </tbody>

@@ -62,28 +62,28 @@
 </div>
 
 <div class="status-tabs">
-  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('index', status='all', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>All</span><b>{{ status_counts.all }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'not_listed' %}active{% endif %}" href="{{ url_for('index', status='not_listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Not Listed</span><b>{{ status_counts.not_listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'listed' %}active{% endif %}" href="{{ url_for('index', status='listed', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Listed</span><b>{{ status_counts.listed }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'sold_review' %}active{% endif %}" href="{{ url_for('index', status='sold_review', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Sold Review</span><b>{{ status_counts.sold_review }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'pending_shipping' %}active{% endif %}" href="{{ url_for('index', status='pending_shipping', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Pending Shipping</span><b>{{ status_counts.pending_shipping }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'returned' %}active{% endif %}" href="{{ url_for('index', status='returned', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'returned' %}active{% endif %}" href="{{ url_for('index', status='returned', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Refunded</span><b>{{ status_counts.returned }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'canceled' %}active{% endif %}" href="{{ url_for('index', status='canceled', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Canceled</span><b>{{ status_counts.canceled }}</b>
   </a>
-  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">
+  <a class="status-tab {% if status_filter == 'sold' %}active{% endif %}" href="{{ url_for('index', status='sold', view=view_mode, q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">
     <span>Sold</span><b>{{ status_counts.sold }}</b>
   </a>
 </div>
@@ -111,6 +111,15 @@
         <option value="">All</option>
         {% for c in categories %}
           <option value="{{ c }}" {% if category_filter==c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Source / Store</label>
+      <select name="source">
+        <option value="">All</option>
+        {% for s in source_locations %}
+          <option value="{{ s }}" {% if source_filter==s %}selected{% endif %}>{{ s }}</option>
         {% endfor %}
       </select>
     </div>
@@ -186,8 +195,8 @@
     {% if needs_info %} · missing Photo, Cost, Price, or eBay{% endif %}
   </div>
   <div class="segmented">
-    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">Cards</a>
-    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter, sort=sort, needs_info='1' if needs_info else none) }}">Table</a>
+    <a class="{% if view_mode == 'cards' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='cards', q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">Cards</a>
+    <a class="{% if view_mode == 'table' %}active{% endif %}" href="{{ url_for('index', status=status_filter, view='table', q=q, platform=platform_filter, category=category_filter, source=source_filter, sort=sort, needs_info='1' if needs_info else none) }}">Table</a>
   </div>
 </div>
 
