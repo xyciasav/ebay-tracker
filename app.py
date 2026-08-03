@@ -1905,6 +1905,68 @@ def create_app():
             if not _sqlite_column_exists("items", "direct_price_override"):
                 _sqlite_add_column("items", "direct_price_override", "FLOAT")
 
+    @app.get("/manifest.webmanifest")
+    def web_manifest():
+        manifest = {
+            "name": "eBay Tracker",
+            "short_name": "Tracker",
+            "description": "Inventory, scanner, store, and profit tracking for eBay reselling.",
+            "id": url_for("index"),
+            "start_url": url_for("index"),
+            "scope": url_for("index"),
+            "display": "standalone",
+            "display_override": ["window-controls-overlay", "standalone", "browser"],
+            "background_color": "#0b0f19",
+            "theme_color": "#0f172a",
+            "orientation": "any",
+            "categories": ["business", "productivity", "shopping"],
+            "icons": [
+                {
+                    "src": url_for("static", filename="icons/pwa-192.png"),
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                },
+                {
+                    "src": url_for("static", filename="icons/pwa-512.png"),
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                },
+            ],
+            "shortcuts": [
+                {
+                    "name": "Scanner",
+                    "short_name": "Scanner",
+                    "description": "Open the scanner and comps tool.",
+                    "url": url_for("scanner_tool"),
+                    "icons": [{"src": url_for("static", filename="icons/pwa-192.png"), "sizes": "192x192"}],
+                },
+                {
+                    "name": "Reports",
+                    "short_name": "Reports",
+                    "description": "Open profit and inventory reports.",
+                    "url": url_for("reports"),
+                    "icons": [{"src": url_for("static", filename="icons/pwa-192.png"), "sizes": "192x192"}],
+                },
+                {
+                    "name": "Public Store",
+                    "short_name": "Store",
+                    "description": "Open the public store page.",
+                    "url": url_for("public_store"),
+                    "icons": [{"src": url_for("static", filename="icons/pwa-192.png"), "sizes": "192x192"}],
+                },
+            ],
+        }
+        return Response(json.dumps(manifest), mimetype="application/manifest+json")
+
+    @app.get("/service-worker.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "service-worker.js", mimetype="text/javascript")
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.context_processor
     def inject_estimator_defaults():
         # available in all templates

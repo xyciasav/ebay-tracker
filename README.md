@@ -35,6 +35,11 @@ This project is designed to help you **track inventory from acquisition to sale*
   - Calculates profit, margin, and break-even max COG
 - Optimized for in-store sourcing
 
+### Progressive Web App
+- Installable on mobile/desktop from the browser menu
+- Home-screen shortcuts for Scanner, Reports, and Store
+- Offline fallback page when the server cannot be reached
+
 ### eBay Import
 - Upload eBay “Active Listings” CSV export
 - Fuzzy-match against existing inventory

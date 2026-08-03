@@ -4,6 +4,14 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>{% block title %}eBay Tracker{% endblock %}</title>
+  <meta name="theme-color" content="#0f172a"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-title" content="eBay Tracker"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <link rel="manifest" href="{{ url_for('web_manifest') }}"/>
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/pwa-192.png') }}"/>
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/pwa-192.png') }}"/>
 
   <style>
     :root{
@@ -594,6 +602,13 @@
     })();
   </script>
   <script src="{{ url_for('static', filename='tools.js') }}"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("{{ url_for('service_worker') }}").catch(() => {});
+      });
+    }
+  </script>
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script>
   function $(id){ return document.getElementById(id); }
