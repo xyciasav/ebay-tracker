@@ -1967,6 +1967,10 @@ def create_app():
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+    @app.get("/favicon.ico")
+    def favicon():
+        return send_from_directory(Path(app.static_folder) / "icons", "favicon.ico", mimetype="image/vnd.microsoft.icon")
+
     @app.context_processor
     def inject_estimator_defaults():
         # available in all templates
