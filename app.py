@@ -1964,10 +1964,23 @@ def create_app():
 
     @app.get("/service-worker.js")
     def service_worker():
-        static_root = Path(app.static_folder or (Path(app.root_path) / "static"))
-        response = send_from_directory(static_root, "service-worker.js", mimetype="text/javascript")
+        # Disabled for now: the app changes often enough that a stale service
+        # worker can make the authenticated dashboard look blank after deploy.
+        response = Response(
+            """
+self.addEventListener("install", (event) => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    self.registration.unregister()
+      .then(() => self.clients.matchAll())
+      .then((clients) => clients.forEach((client) => client.navigate(client.url)))
+  );
+});
+""".strip(),
+            mimetype="text/javascript",
+        )
         response.headers["Service-Worker-Allowed"] = "/"
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
     @app.get("/favicon.ico")
