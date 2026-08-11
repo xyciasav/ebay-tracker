@@ -1958,18 +1958,26 @@ def create_app():
                 },
             ],
         }
-        return Response(json.dumps(manifest), mimetype="application/manifest+json")
+        response = Response(json.dumps(manifest), mimetype="application/manifest+json")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
     @app.get("/service-worker.js")
     def service_worker():
-        response = send_from_directory(app.static_folder, "service-worker.js", mimetype="text/javascript")
+        static_root = Path(app.static_folder or (Path(app.root_path) / "static"))
+        response = send_from_directory(static_root, "service-worker.js", mimetype="text/javascript")
         response.headers["Service-Worker-Allowed"] = "/"
         response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.get("/favicon.ico")
     def favicon():
-        return send_from_directory(Path(app.static_folder) / "icons", "favicon.ico", mimetype="image/vnd.microsoft.icon")
+        static_root = Path(app.static_folder or (Path(app.root_path) / "static"))
+        return send_from_directory(static_root / "icons", "favicon.ico", mimetype="image/vnd.microsoft.icon")
+
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True}
 
     @app.context_processor
     def inject_estimator_defaults():
